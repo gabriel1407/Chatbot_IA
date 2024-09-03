@@ -1,0 +1,47 @@
+!pip install PyPDF2
+!pip install langchain
+!pip install openai
+!pip install tiktoken
+!pip install faiss-cpu
+!pip install -U langchain-community
+
+import os
+from PyPDF2 import PdfReader
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+
+class EmbeddingsPDF():
+    def __init__(self, pdf):
+        self.pdf = pdf
+
+    def get_embeddings(self):
+        if self.pdf is not None:
+            leer_pdf = PdfReader(self.pdf)
+            text = ''
+            for page in leer_pdf.pages:
+                text += page.extract_text()
+
+            textoDividido = CharacterTextSplitter(
+                separator='\n',
+                chunk_size=1000,
+                length_function=len
+            )
+
+            trozos = textoDividido.split_text(text)
+
+            # Asegúrate de que la clave API esté configurada
+            os.environ["OPENAI_API_KEY"] = 'sk-proj-nLBrLl0UjjTMTXJrnf18T3BlbkFJBqxlVI8sdhfdfVxHaoUI'  # Configura esto con tu clave API
+
+            embedding = OpenAIEmbeddings()
+
+            baseConocimiento = FAISS.from_texts(trozos, embedding)
+            baseConocimiento.save_local("vectorStore/faiss_index")
+            return True
+
+# Ruta al archivo PDF
+pdf_file = "/content/SOBRE DATAPATH.pdf"
+
+# Crear una instancia de EmbeddingsPDF y obtener embeddings
+baseConocimiento = EmbeddingsPDF(pdf_file)
+baseConocimiento.get_embeddings()

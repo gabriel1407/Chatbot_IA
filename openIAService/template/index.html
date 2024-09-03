@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat en Tiempo Real</title>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+</head>
+
+<body>
+    <div>
+        <h1>Chat en Tiempo Real</h1>
+        <div id="messages" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc;"></div>
+        <input id="input" autocomplete="off" placeholder="Escribe tu mensaje..." />
+        <button onclick="sendMessage()">Enviar</button>
+        <button onclick="sendMessage('ia')">Hablar con IA</button>
+    </div>
+
+    <script type="text/javascript">
+        const socket = io.connect('http://' + document.domain + ':' + location.port, {
+                transports: ['websocket']
+            });
+
+        socket.on('response', function (msg) {
+            const messages = document.getElementById('messages');
+            const message = document.createElement('div');
+            message.innerHTML = msg.data;
+            messages.appendChild(message);
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        function sendMessage(type = 'message') {
+            const input = document.getElementById('input').value;
+            if (input) {
+                socket.emit('message', { type: type, data: input });
+                document.getElementById('input').value = '';
+            }
+        }
+    </script>
+</body>
+
+</html>
