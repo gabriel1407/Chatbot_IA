@@ -456,7 +456,7 @@ def detect_audio_language(file_path):
 
 def upload_media_to_whatsapp(file_path, media_type):
     try:
-        token = "EAANIN5buPuIBO8qy3ZBm3RzI8E9YJ42DA25nOo1sPyVBYeJ9V7WQbKUL9WJwLIlB1TEGXKw65ku7IXz0AtAS64Yd3Y9Yp4UYr9JqpqCxzUp96TbzZCFN4wW2bSFZCMugSuS85hHVm29HIJuGfbThdQzWV3eifpFCz4GZBWm549ZAQggAXVhBnBRfIiktM6Tre"
+        token = config('TOKEN_WHATSAPP')
         url = "https://graph.facebook.com/v18.0/245533201976802/media"
         headers = {
             "Authorization": f"Bearer {token}"
@@ -477,7 +477,7 @@ def upload_media_to_whatsapp(file_path, media_type):
 
 def WhatsappService(body):
     try:
-        token = "EAANIN5buPuIBO8qy3ZBm3RzI8E9YJ42DA25nOo1sPyVBYeJ9V7WQbKUL9WJwLIlB1TEGXKw65ku7IXz0AtAS64Yd3Y9Yp4UYr9JqpqCxzUp96TbzZCFN4wW2bSFZCMugSuS85hHVm29HIJuGfbThdQzWV3eifpFCz4GZBWm549ZAQggAXVhBnBRfIiktM6Tre"
+        token = config('TOKEN_WHATSAPP')
         api_url = "https://graph.facebook.com/v18.0/245533201976802/messages"
         headers = {
             "Content-Type": "application/json",
