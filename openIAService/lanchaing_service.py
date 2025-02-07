@@ -321,7 +321,7 @@ def Received_message():
             logging.error("No se recibió ningún cuerpo JSON.")
             return "EVENT_RECEIVED"
 
-        logging.info(f"JSON recibido: {json.dumps(body)}")  # Registrar el JSON completo para depuración
+        logging.info(f"JSON recibido: {json.dumps(body)}")
 
         if "entry" in body and len(body["entry"]) > 0:
             entry = body["entry"][0]
@@ -332,11 +332,10 @@ def Received_message():
                     if "messages" in value:
                         messages = value["messages"]
                         for message in messages:
-                            # Verificar si ya se procesó el mensaje
                             message_id = message.get("id")
                             if message_id and message_id not in processed_messages:
                                 processed_messages.add(message_id)
-                                process_individual_message(message)  # Lógica de procesamiento de mensajes
+                                process_individual_message(message)
                             else:
                                 logging.info(f"Mensaje {message_id} ya procesado o no tiene ID.")
                     else:
@@ -390,28 +389,6 @@ def process_individual_message(message):
         conversational_contexts[number].append({"role": "user", "content": body})
         conversational_contexts[number].append({"role": "assistant", "content": openai_response})
 
-        # Comentado: Análisis de respuesta de la IA para crear lista de opciones
-        # lines = openai_response.split('\n')
-        # options = []
-        # detailed_text = ""
-
-        # for line in lines:
-        #     if line.strip() and line.strip()[0].isdigit() and line.strip()[1] == '.':
-        #         parts = line.split(". ", 1)
-        #         if len(parts) == 2:
-        #             id = f"option{parts[0].strip()}"
-        #             description = truncate_text(parts[1].split(':')[0], max_length=60)
-        #             options.append({
-        #                 "id": id,
-        #                 "title": 'Opciones disponibles',
-        #                 "description": description
-        #             })
-        #             detailed_text += f"{line}\n\n"
-
-        # if len(options) >= 2:
-        #     answer_body = create_list_message(detailed_text.strip(), options)
-        #     answer_body["to"] = f"{number}"
-        # else:
         logging.error("No se pudieron crear opciones de lista de la respuesta de OpenAI.")
         answer_body = {
             "messaging_product": "whatsapp",

@@ -1,0 +1,5 @@
+env/
+openIAService/local/uploads/
+openIAService/app.log
+*.pyc
+openIAService/settings.ini
