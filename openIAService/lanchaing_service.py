@@ -83,31 +83,8 @@ def process_audio(file_path, language):
         audio_data = recognizer.record(source)
         text = recognizer.recognize_google(audio_data, language=language)
     return text
-def handle_message_with_ai(message, user_id="default_user", message_type="text", media_file=None):
+def handle_message_with_ai(message, user_id, message_type="text", media_file=None):
     try:
-        # Crear un contexto de conversación por usuario
-        if user_id not in conversational_contexts:
-            conversational_contexts[user_id] = {"context": [], "galanet_mode": False}
-
-        # Detectar si el mensaje contiene la palabra clave "Galanet" para activar el modo
-        if "galanet" in message.lower():
-            conversational_contexts[user_id]["galanet_mode"] = True
-            response = "Modo de soporte Galanet activado. Ahora, solo puedo responder a preguntas relacionadas con los servicios de internet de Galanet."
-            conversational_contexts[user_id]["context"].append({"role": "assistant", "content": response})
-            return response
-
-        # Detectar si el mensaje contiene las palabras clave para salir del modo Galanet
-        if any(word in message.lower() for word in ["salir", "adios"]):
-            if conversational_contexts[user_id]["galanet_mode"]:
-                conversational_contexts[user_id]["galanet_mode"] = False
-                response = "Modo de soporte Galanet desactivado. Ahora puedes hacerme cualquier pregunta."
-                conversational_contexts[user_id]["context"].append({"role": "assistant", "content": response})
-                return response
-            else:
-                response = "No estás en modo Galanet. Puedes hacerme cualquier pregunta."
-                conversational_contexts[user_id]["context"].append({"role": "assistant", "content": response})
-                return response
-
         
         # Detectar si el mensaje contiene código
         if "```" in message or "import " in message or "const " in message:
@@ -119,41 +96,42 @@ def handle_message_with_ai(message, user_id="default_user", message_type="text",
             }
             response = generate_openai_response(f"Este es un código que necesito ayuda para ajustar: {message}", conversational_contexts[user_id]["context"], 'es', initial_instructions=initial_instructions)
             return response
-        
-        # Comprobar si está en modo Galanet
-        if conversational_contexts[user_id]["galanet_mode"]:
-            # Procesar mensaje según su tipo
-            if message_type == "text":
-                return handle_text_message(message, user_id)
-            elif message_type == "image" and media_file:
-                return handle_image_message(media_file, user_id)
-            elif message_type == "audio" and media_file:
-                return handle_audio_message(media_file, user_id)
-            else:
-                return "Lo siento, no puedo procesar este tipo de mensaje en modo Galanet."
-
         else:
-            # Si no está en modo Galanet, responder normalmente a cualquier pregunta
-            return handle_text_message(message, user_id)
-
+            response = "No estás en modo Galanet. Puedes hacerme cualquier pregunta."
+            conversational_contexts[user_id]["context"].append({"role": "assistant", "content": response})
+            return response
+        
+        
     except Exception as e:
         logging.error(f"Error al manejar el mensaje con IA: {e}")
         return "Hubo un error al procesar tu mensaje."
 
 def handle_text_message(message, user_id):
+    
     prompt = message
     context = conversational_contexts[user_id]["context"]
     language = 'es'  # Asumimos español por defecto
+    
+    if "```" in message or "import " in message or "const " in message:
+        logging.info("Mensaje contiene código de programación.")
+        # Aquí podrías formatear el mensaje como código y pasar instrucciones específicas a la IA
+        initial_instructions = {
+            "role": "system",
+            "content": "Eres un asistente técnico que puede ayudar con preguntas sobre programación y código. Puedes recibir y analizar fragmentos de código en diferentes lenguajes de programación, como Python, JavaScript, Java, etc. Proporciona soluciones claras y específicas a problemas de programación."
+        }
+        response = generate_openai_response(f"Este es un código que necesito ayuda para ajustar: {message}", conversational_contexts[user_id]["context"], 'es', initial_instructions=initial_instructions)
+        return response
 
-    initial_instructions = {
-        "role": "system",
-        "content": "Eres un asistente de soporte técnico especializado en ayudar a los clientes de Galanet con problemas de internet. Proporciona respuestas claras, útiles y orientadas a solucionar problemas de conexión, configuración de red, y asistencia técnica general para los servicios de Galanet. Si te hacen preguntas fuera de estos temas, responde con 'Lo siento, no puedo darte esa respuesta, ya que mi conocimiento es para prestar servicio a Galanet'."
-    }
+    else:
+        initial_instructions = {
+            "role": "system",
+            "content": "Eres un asistente virtual diseñado para ayudar a los usuarios con una amplia variedad de preguntas y temas. Proporciona respuestas claras, útiles y precisas a las consultas que se te presenten."
+        }
 
-    response = generate_openai_response(prompt, context, language, initial_instructions)
-    conversational_contexts[user_id]["context"].append({"role": "user", "content": prompt})
-    conversational_contexts[user_id]["context"].append({"role": "assistant", "content": response})
-    return response
+        response = generate_openai_response(prompt, context, language, initial_instructions)
+        conversational_contexts[user_id]["context"].append({"role": "user", "content": prompt})
+        conversational_contexts[user_id]["context"].append({"role": "assistant", "content": response})
+        return response
 
 def handle_image_message(media_file, user_id):
     # Procesar la imagen usando OCR para obtener el texto
@@ -192,19 +170,6 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
         completion = response.choices[0].message.content.strip()
         return completion
     return "No se pudo generar una respuesta."
-
-def is_relevant_to_galanet(response_text):
-    # Lista de palabras clave relacionadas con soporte de internet, redes, Galanet, etc.
-    keywords = ["internet", "conexión", "red", "Galanet", "WiFi", "modem", "router", "soporte técnico", "configuración"]
-    
-    # Convertir respuesta a minúsculas para una comparación insensible a mayúsculas/minúsculas
-    response_text_lower = response_text.lower()
-    
-    # Verificar si alguna palabra clave está en la respuesta
-    for keyword in keywords:
-        if keyword in response_text_lower:
-            return True
-    return False
 
 def generate_media(content, media_type):
     if media_type == "audio":
@@ -471,4 +436,4 @@ def WhatsappService(body):
         return False
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=8082, debug=True)
+    app.run(host="0.0.0.0", port=8083, debug=True)
