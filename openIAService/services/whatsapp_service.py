@@ -4,6 +4,8 @@ import logging
 from decouple import config
 from services.openia_service import handle_text_message
 from services.files_processing_service import process_image, process_audio, process_document
+from services.context_service import load_context, save_context, detect_new_topic, get_active_context_id
+
 
 TOKEN_WHATSAPP = config('TOKEN_WHATSAPP')
 WHATSAPP_API_URL = "https://graph.facebook.com/v18.0/245533201976802/messages"
@@ -33,27 +35,61 @@ def create_text_message(recipient, message):
     }
 
 def process_individual_message(message):
-    """Procesa un mensaje recibido desde WhatsApp."""
+    """
+    Procesa un mensaje recibido desde WhatsApp manteniendo el contexto por tema/conversación.
+    """
     try:
         recipient = message.get("from")
         if not recipient:
             logging.error("Mensaje recibido sin número de remitente.")
             return
 
+        # Por defecto, context_id es "default"
+        context_id = get_active_context_id(recipient)
+
+        # Detectar nuevo tema (puedes mejorar el trigger, aquí solo un ejemplo)
+        user_text = None
         if "text" in message:
-            text = message["text"].get("body", "Texto no disponible")
-            response_text = handle_text_message(text, recipient)
+            user_text = message["text"].get("body", "")
+            if detect_new_topic(user_text):
+                # Crea un nuevo context_id basado en timestamp o un nombre
+                from datetime import datetime
+                context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                # Opcional: puedes avisar al usuario
+                send_whatsapp_message(create_text_message(
+                    recipient, ""
+                ))
+            # Carga el contexto actual (tema)
+            context = load_context(recipient, context_id)
+            response_text = handle_text_message(user_text, recipient, context_id=context_id)
+            # No guardes aún, lo hace handle_text_message si lo tienes así, si no, guárdalo aquí
+
         elif "image" in message:
             image_id = message["image"]["id"]
             caption = message["image"].get("caption", "")
             file_path = download_media(image_id, "image/jpeg")
-            # Usa el caption y la imagen para GPT-4o (visión)
-            response_text = handle_text_message(caption, recipient, image_path=file_path)
+            if detect_new_topic(caption):
+                from datetime import datetime
+                context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                send_whatsapp_message(create_text_message(
+                    recipient, ""
+                ))
+            context = load_context(recipient, context_id)
+            response_text = handle_text_message(caption, recipient, image_path=file_path, context_id=context_id)
+
         elif "audio" in message:
             audio_id = message["audio"]["id"]
             file_path = download_media(audio_id, "audio/ogg")
             extracted_text = process_audio(file_path, 'es')
-            response_text = handle_text_message(extracted_text, recipient)
+            if detect_new_topic(extracted_text):
+                from datetime import datetime
+                context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                send_whatsapp_message(create_text_message(
+                    recipient, ""
+                ))
+            context = load_context(recipient, context_id)
+            response_text = handle_text_message(extracted_text, recipient, context_id=context_id)
+
         elif "document" in message:
             document_id = message["document"]["id"]
             mime_type = message["document"].get("mime_type", "")
@@ -61,7 +97,14 @@ def process_individual_message(message):
             if file_extension:
                 file_path = download_media(document_id, f"application/{file_extension}")
                 extracted_text = process_document(file_path, file_extension)
-                response_text = handle_text_message(extracted_text, recipient)
+                if detect_new_topic(extracted_text):
+                    from datetime import datetime
+                    context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    send_whatsapp_message(create_text_message(
+                        recipient, ""
+                    ))
+                context = load_context(recipient, context_id)
+                response_text = handle_text_message(extracted_text, recipient, context_id=context_id)
             else:
                 response_text = "Formato de documento no soportado."
         else:
@@ -71,6 +114,7 @@ def process_individual_message(message):
         send_whatsapp_message(response_message)
     except Exception as e:
         logging.error(f"Error en process_individual_message: {e}")
+
 
         
         

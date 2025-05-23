@@ -10,8 +10,6 @@ from services.context_service import load_context, save_context
 OPENAI_API_KEY = config('OPENAI_API_KEY')
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-conversational_contexts = {}
-
 def generate_openai_response(prompt, context, language, initial_instructions=None):
     """
     Genera una respuesta de OpenAI basada en el contexto de la conversación.
@@ -19,27 +17,24 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
     if initial_instructions:
         context = [initial_instructions] + context
 
-    message = context + [{"role": "user", "content": prompt}]
+    messages = context + [{"role": "user", "content": prompt}]
 
     if language != 'en':
-        message.insert(0, {"role": "system", "content": f"Por favor, responde en {language}."})
+        messages.insert(0, {"role": "system", "content": f"Por favor, responde en {language}."})
     
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=message,
+            messages=messages,
             max_tokens=600,
             temperature=0.7,
         )
-        
         if response and response.choices:
             return response.choices[0].message.content.strip()
         return "No se pudo generar una respuesta."
     except Exception as e:
         logging.error(f"Error al generar respuesta con OpenAI: {e}")
         return "Error al generar la respuesta."
-
-
 
 def generate_openai_vision_response(prompt, image_path, language='es'):
     with open(image_path, "rb") as image_file:
@@ -58,7 +53,7 @@ def generate_openai_vision_response(prompt, image_path, language='es'):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",  # Modelo recomendado para vision y texto
+            model="gpt-4o",  # Modelo recomendado para visión y texto
             messages=messages,
             max_tokens=800,
         )
@@ -69,15 +64,12 @@ def generate_openai_vision_response(prompt, image_path, language='es'):
         logging.error(f"Error en vision con OpenAI: {e}")
         return "Error al analizar la imagen."
 
-
-
-
-def handle_text_message(message, user_id, image_path=None):
+def handle_text_message(message, user_id, image_path=None, context_id="default"):
     """
     Maneja mensajes de texto o imágenes.
     Si image_path es provisto, usa GPT-4 Vision para analizar la imagen junto con el mensaje del usuario.
     """
-    context = load_context(user_id)
+    context = load_context(user_id, context_id)
     language = 'es'
 
     initial_instructions = {
@@ -86,12 +78,16 @@ def handle_text_message(message, user_id, image_path=None):
     }
 
     if image_path:
-        # Aquí es donde llamas a vision
+        # Usa GPT-4 Vision para análisis de imagen
         response = generate_openai_vision_response(message, image_path, language)
+        # Opcional: Puedes agregar esto al contexto si quieres continuidad
+        context.append({"role": "user", "content": message})
+        context.append({"role": "assistant", "content": response})
+        save_context(user_id, context, context_id)
     else:
         prompt = message
         response = generate_openai_response(prompt, context, language, initial_instructions)
         context.append({"role": "user", "content": prompt})
         context.append({"role": "assistant", "content": response})
-        save_context(user_id, context)
+        save_context(user_id, context, context_id)
     return response

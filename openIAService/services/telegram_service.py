@@ -3,6 +3,11 @@ import logging
 from decouple import config
 from services.openia_service import handle_text_message
 from services.files_processing_service import process_image, process_audio, process_document
+from services.context_service import (
+    load_context,
+    detect_new_topic,
+    get_active_context_id
+)
 
 # Logger específico para Telegram
 telegram_logger = logging.getLogger("telegram")
@@ -50,38 +55,56 @@ def process_telegram_update(update):
         if not message:
             telegram_logger.warning("Update recibido sin mensaje.")
             return
-        chat_id = message["chat"]["id"]
+        chat_id = str(message["chat"]["id"])
+
+        # Contexto activo (tema actual)
+        context_id = get_active_context_id(chat_id)
 
         if "text" in message:
             user_text = message["text"]
+            if detect_new_topic(user_text):
+                from datetime import datetime
+                context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                # No envíes ningún mensaje de aviso
+            context = load_context(chat_id, context_id)
             telegram_logger.info(f"Mensaje de texto recibido de {chat_id}: {user_text}")
-            response_text = handle_text_message(user_text, str(chat_id))
+            response_text = handle_text_message(user_text, chat_id, context_id=context_id)
+
         elif "photo" in message:
             photo = message["photo"][-1]
             file_id = photo["file_id"]
             caption = message.get("caption", "")
-            telegram_logger.info(f"Foto recibida de {chat_id}, file_id: {file_id}, caption: {caption}")
+            if detect_new_topic(caption):
+                from datetime import datetime
+                context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            context = load_context(chat_id, context_id)
             file_path = download_telegram_file(file_id, "jpg")
-            # Ahora sí pasas el caption y el path de la imagen juntos
-            response_text = handle_text_message(caption, str(chat_id), image_path=file_path)
+            response_text = handle_text_message(caption, chat_id, image_path=file_path, context_id=context_id)
 
         elif "audio" in message or "voice" in message:
             audio = message.get("audio") or message.get("voice")
             file_id = audio["file_id"]
-            telegram_logger.info(f"Audio recibido de {chat_id}, file_id: {file_id}")
             file_path = download_telegram_file(file_id, "ogg")
             extracted_text = process_audio(file_path, 'es')
-            response_text = handle_text_message(extracted_text, str(chat_id))
+            if detect_new_topic(extracted_text):
+                from datetime import datetime
+                context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            context = load_context(chat_id, context_id)
+            response_text = handle_text_message(extracted_text, chat_id, context_id=context_id)
+
         elif "document" in message:
             document = message["document"]
             file_id = document["file_id"]
             mime_type = document.get("mime_type", "")
-            telegram_logger.info(f"Documento recibido de {chat_id}, file_id: {file_id}, mime_type: {mime_type}")
             file_ext = "pdf" if "pdf" in mime_type else "docx" if "word" in mime_type else None
             if file_ext:
                 file_path = download_telegram_file(file_id, file_ext)
                 extracted_text = process_document(file_path, file_ext)
-                response_text = handle_text_message(extracted_text, str(chat_id))
+                if detect_new_topic(extracted_text):
+                    from datetime import datetime
+                    context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                context = load_context(chat_id, context_id)
+                response_text = handle_text_message(extracted_text, chat_id, context_id=context_id)
             else:
                 response_text = "Formato de documento no soportado."
         else:
