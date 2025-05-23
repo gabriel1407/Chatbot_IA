@@ -45,9 +45,10 @@ def process_individual_message(message):
             response_text = handle_text_message(text, recipient)
         elif "image" in message:
             image_id = message["image"]["id"]
+            caption = message["image"].get("caption", "")
             file_path = download_media(image_id, "image/jpeg")
-            extracted_text = process_image(file_path)
-            response_text = handle_text_message(extracted_text, recipient)
+            # Usa el caption y la imagen para GPT-4o (visión)
+            response_text = handle_text_message(caption, recipient, image_path=file_path)
         elif "audio" in message:
             audio_id = message["audio"]["id"]
             file_path = download_media(audio_id, "audio/ogg")
@@ -70,6 +71,7 @@ def process_individual_message(message):
         send_whatsapp_message(response_message)
     except Exception as e:
         logging.error(f"Error en process_individual_message: {e}")
+
         
         
 def download_media(media_id, media_type):

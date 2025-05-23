@@ -1,5 +1,6 @@
 from flask import Flask
 from routes.whatsapp_routes import whatsapp_bp
+from routes.telegram_routes import telegram_bp
 from routes.file_routes import file_bp
 from config import Config
 import logging
@@ -9,6 +10,7 @@ app.config.from_object(Config)
 Config.init_app(app)
 
 app.register_blueprint(whatsapp_bp)
+app.register_blueprint(telegram_bp)
 app.register_blueprint(file_bp)
 
 # Configuración de logging
