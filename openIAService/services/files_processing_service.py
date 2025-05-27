@@ -36,12 +36,16 @@ def process_docx(file_path):
 def process_image(file_path):
     """Extrae el texto de una imagen usando OCR."""
     try:
+        if not os.path.exists(file_path):
+            logging.error(f"El archivo de imagen no existe: {file_path}")
+            return "Error: el archivo de imagen no existe."
+        logging.info(f"Procesando imagen con pytesseract: {file_path}")
         text = pytesseract.image_to_string(file_path)
         logging.info(f"Imagen procesada correctamente: {file_path}")
-        return text
+        return text if text.strip() else "No se pudo extraer texto de la imagen."
     except Exception as e:
-        logging.error(f"Error al procesar imagen: {e}")
-        return "Error al procesar la imagen."
+        logging.error(f"Error al procesar imagen: {e}", exc_info=True)
+        return "Error al analizar la imagen."
 
 def process_audio(file_path, language='es'):
     """Convierte un archivo de audio a texto usando reconocimiento de voz."""

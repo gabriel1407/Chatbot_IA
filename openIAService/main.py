@@ -14,8 +14,14 @@ app.register_blueprint(telegram_bp)
 app.register_blueprint(file_bp)
 
 # Configuración de logging
-logging.basicConfig(filename='app.log', level=logging.INFO,
-                    format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("app.log"),
+        logging.StreamHandler()
+    ]
+)
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8082, debug=True)

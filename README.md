@@ -64,6 +64,26 @@ Este repositorio implementa un modelo de chatbot inteligente que puede interactu
 2. El bot procesa el mensaje, mantiene el contexto y responde usando OpenAI.
 3. Si el usuario envía un archivo, el bot extrae el texto y lo utiliza para responder preguntas sobre su contenido.
 
+## Ejemplos para probar el flujo MCP y el flujo estándar
+
+**Caso 1: Activación del flujo MCP (búsqueda web + ChatGPT)**
+
+Pregunta:
+```
+buscar: ¿Quién es el actual presidente de Francia?
+```
+*La IA debe activar el flujo MCP, buscar en la web y luego resumir la respuesta con ChatGPT.*
+
+---
+
+**Caso 2: Flujo estándar (solo ChatGPT, sin búsqueda web)**
+
+Pregunta:
+```
+Explícame cómo funciona la fotosíntesis en las plantas.
+```
+*La IA debe responder usando solo ChatGPT y el contexto de conversación.*
+
 ## Personalización
 
 Puedes modificar los servicios en `openIAService/services/` para agregar nuevas funcionalidades, como integración con otras plataformas, análisis de sentimiento, respuestas multimedia, etc.
