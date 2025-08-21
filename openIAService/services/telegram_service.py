@@ -11,9 +11,9 @@ from openIAService.services.context_service import (
 from openIAService.services.metrics_service import log_user_interaction, measure_time
 from openIAService.services.task_queue_service import submit_task_by_name
 
-# Logger específico para Telegram
+# Logger específico para Telegram (stdout para Docker)
 telegram_logger = logging.getLogger("telegram")
-telegram_handler = logging.FileHandler("telegram.log")
+telegram_handler = logging.StreamHandler()
 telegram_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
 telegram_handler.setFormatter(telegram_formatter)
 telegram_logger.setLevel(logging.INFO)
@@ -40,7 +40,11 @@ def download_telegram_file(file_id, file_ext):
         file_info = requests.get(f"{TELEGRAM_API_URL}/getFile?file_id={file_id}").json()
         file_path = file_info["result"]["file_path"]
         file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
-        local_path = f"local/uploads/{file_id}.{file_ext}"
+        # Asegura que el directorio exista
+        import os
+        upload_dir = "local/uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        local_path = f"{upload_dir}/{file_id}.{file_ext}"
         file_data = requests.get(file_url).content
         with open(local_path, "wb") as f:
             f.write(file_data)

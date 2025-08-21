@@ -7,17 +7,18 @@ services:
   rq-worker:
     image: python:3.11-slim
     container_name: chatbot-rq-worker
-    working_dir: /app
+    working_dir: /app/Chatbot_IA
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./:/app
+      - uploads:/app/Chatbot_IA/local/uploads
     depends_on:
       - redis
     command: >
-      bash -lc "pip install --no-cache-dir -r requirements.txt && rq worker --url $$REDIS_URL"
+      bash -lc "apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/* && pip install --no-cache-dir -r requirements.txt && rq worker --url $$REDIS_URL"
 
   app:
     build:
@@ -33,3 +34,8 @@ services:
     depends_on:
       - redis
     command: []
+    volumes:
+      - uploads:/app/Chatbot_IA/local/uploads
+
+volumes:
+  uploads:

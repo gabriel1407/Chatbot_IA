@@ -129,7 +129,11 @@ def download_media(media_id, media_type):
         response = requests.get(url, headers=headers)
         media_url = response.json().get('url')
         media_response = requests.get(media_url, headers=headers)
-        file_path = f"local/uploads/{media_id}.{media_type.split('/')[-1]}"
+        # Asegura que el directorio exista
+        import os
+        upload_dir = "local/uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        file_path = f"{upload_dir}/{media_id}.{media_type.split('/')[-1]}"
         with open(file_path, 'wb') as f:
             f.write(media_response.content)
         logging.info(f"Archivo descargado: {file_path}")
