@@ -7,14 +7,14 @@ services:
   rq-worker:
     image: python:3.11-slim
     container_name: chatbot-rq-worker
-    working_dir: /app/Chatbot_IA
+    working_dir: /app
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./:/app
-      - uploads:/app/Chatbot_IA/local/uploads
+      - uploads:/app/local/uploads
     depends_on:
       - redis
     command: >
