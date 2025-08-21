@@ -11,7 +11,7 @@ from openIAService.services.cache_service import cache_user_context, get_cached_
 
 DB_PATH = os.path.join('local', 'contextos.db')
 if not os.path.exists('local'):
-    os.makedirs('local')
+    os.makedirs('local', exist_ok=True)
 
 class ConnectionPool:
     """Pool de conexiones SQLite para mejorar el rendimiento."""
@@ -26,22 +26,34 @@ class ConnectionPool:
     def _initialize_pool(self):
         """Inicializa el pool con conexiones."""
         for _ in range(self.pool_size):
-            conn = sqlite3.connect(self.database_path, check_same_thread=False)
-            conn.execute("PRAGMA journal_mode=WAL")  # Mejora el rendimiento
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA cache_size=10000")
-            conn.execute("PRAGMA temp_store=MEMORY")
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS user_context (
-                    user_id TEXT,
-                    context_id TEXT,
-                    context TEXT,
-                    last_updated TIMESTAMP,
-                    PRIMARY KEY (user_id, context_id)
-                )
-            """)
-            conn.commit()
-            self.pool.put(conn)
+            # Reintentos para evitar errores de bloqueo durante el arranque en paralelo
+            for attempt in range(10):
+                try:
+                    conn = sqlite3.connect(self.database_path, check_same_thread=False, timeout=30.0)
+                    # Dar tiempo a SQLite cuando hay contención
+                    conn.execute("PRAGMA busy_timeout=30000")
+                    conn.execute("PRAGMA journal_mode=WAL")  # Mejora el rendimiento y concurrencia
+                    conn.execute("PRAGMA synchronous=NORMAL")
+                    conn.execute("PRAGMA cache_size=10000")
+                    conn.execute("PRAGMA temp_store=MEMORY")
+                    conn.execute("""
+                        CREATE TABLE IF NOT EXISTS user_context (
+                            user_id TEXT,
+                            context_id TEXT,
+                            context TEXT,
+                            last_updated TIMESTAMP,
+                            PRIMARY KEY (user_id, context_id)
+                        )
+                    """)
+                    conn.commit()
+                    self.pool.put(conn)
+                    break
+                except sqlite3.OperationalError as e:
+                    logging.warning(f"[DB] SQLite locked during init (attempt {attempt+1}/10): {e}")
+                    time.sleep(0.3)
+                except Exception as e:
+                    logging.error(f"[DB] Error inicializando conexión SQLite: {e}")
+                    time.sleep(0.3)
     
     @contextmanager
     def get_connection(self):

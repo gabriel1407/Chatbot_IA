@@ -2,11 +2,10 @@
 FROM python:3.11-slim
 
 # System deps (optional: tesseract, ffmpeg, etc., if needed by your processing)
-# Uncomment if your pipeline requires them
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     tesseract-ocr \
-#     ffmpeg \
-#  && rm -rf /var/lib/apt/lists/*
+# Install ffmpeg for pydub/audio processing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
