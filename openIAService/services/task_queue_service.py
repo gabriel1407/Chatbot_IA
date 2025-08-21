@@ -58,7 +58,9 @@ def is_distributed() -> bool:
 def submit_task_by_name(func_path: str, *args: Any, **kwargs: Any) -> None:
     """Enqueue a task by import path 'module.sub:function'."""
     if _rq_queue is not None:
-        _rq_queue.enqueue(func_path, *args, **kwargs)
+        # RQ espera ruta con puntos: module.sub.function
+        dotted_path = func_path.replace(":", ".") if ":" in func_path else func_path
+        _rq_queue.enqueue(dotted_path, *args, **kwargs)
         return
     # Fallback: resolve and run via in-memory queue
     module_name, func_name = func_path.split(":")
@@ -70,8 +72,9 @@ def submit_task_by_name(func_path: str, *args: Any, **kwargs: Any) -> None:
 def submit_task(func: Callable, *args: Any, **kwargs: Any) -> None:
     if _rq_queue is not None:
         # Enqueue by name when possible
-        func_path = f"{func.__module__}:{func.__name__}"
-        submit_task_by_name(func_path, *args, **kwargs)
+        # Use dotted path for RQ
+        dotted_path = f"{func.__module__}.{func.__name__}"
+        submit_task_by_name(dotted_path, *args, **kwargs)
         return
     if not _started:
         start_worker()

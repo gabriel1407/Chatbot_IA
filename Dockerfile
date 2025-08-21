@@ -24,4 +24,14 @@ COPY . /app
 EXPOSE 8082
 
 # Default command is the web app with Gunicorn
-CMD ["gunicorn", "openIAService.main:app", "--timeout", "120", "--workers", "2", "--threads", "4", "--bind", "0.0.0.0:8082"]
+# Send access logs to stdout and errors to stderr so they are visible via `docker compose logs`
+CMD [
+  "gunicorn",
+  "openIAService.main:app",
+  "--timeout", "120",
+  "--workers", "2",
+  "--threads", "4",
+  "--bind", "0.0.0.0:8082",
+  "--access-logfile", "-",
+  "--error-logfile", "-"
+]
