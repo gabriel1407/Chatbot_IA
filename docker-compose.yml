@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   redis:
     image: redis:7-alpine
@@ -19,7 +17,7 @@ services:
     depends_on:
       - redis
     command: >
-      bash -lc "pip install --no-cache-dir -r requirements.txt && rq worker --url $REDIS_URL"
+      bash -lc "pip install --no-cache-dir -r requirements.txt && rq worker --url $$REDIS_URL"
 
   app:
     build:
