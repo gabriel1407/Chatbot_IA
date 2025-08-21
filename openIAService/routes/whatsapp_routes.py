@@ -1,11 +1,29 @@
 from flask import Blueprint, request, jsonify
 import logging
 import json
-from services.whatsapp_service import send_whatsapp_message, create_text_message, process_individual_message
+from openIAService.services.whatsapp_service import send_whatsapp_message, create_text_message, process_individual_message
+from openIAService.services.metrics_service import log_user_interaction, measure_time
+from openIAService.services.limiter import limiter
+
+def whatsapp_sender_key():
+    try:
+        body = request.get_json(silent=True) or {}
+        entry = (body.get("entry") or [{}])[0]
+        change = (entry.get("changes") or [{}])[0]
+        value = change.get("value", {})
+        sender = (value.get("contacts") or [{}])[0].get("wa_id")
+        if sender:
+            return f"wa:{sender}"
+    except Exception:
+        pass
+    # Fallback to remote address
+    return request.remote_addr or "unknown"
 
 whatsapp_bp = Blueprint('whatsapp', __name__)
 
 @whatsapp_bp.route('/whatsapp', methods=['GET'])
+@measure_time("whatsapp_verify")
+@limiter.limit("20 per minute", key_func=lambda: request.args.get('hub.verify_token', request.remote_addr))
 def verify_token():
     """Verifica el token de WhatsApp."""
     try:
@@ -21,6 +39,8 @@ def verify_token():
         return "Error", 400
 
 @whatsapp_bp.route('/whatsapp', methods=['POST'])
+@measure_time("whatsapp_webhook")
+@limiter.limit("20 per minute", key_func=whatsapp_sender_key)
 def received_message():
     """Procesa los mensajes recibidos de WhatsApp."""
     try:
@@ -29,7 +49,7 @@ def received_message():
             logging.error("No se recibió ningún cuerpo JSON.")
             return "EVENT_RECEIVED"
 
-        logging.info(f"JSON recibido: {json.dumps(body)}")
+        #logging.info(f"JSON recibido: {json.dumps(body)}")
 
         if "entry" in body and isinstance(body["entry"], list):
             for entry in body["entry"]:
@@ -40,6 +60,12 @@ def received_message():
                     for message in messages:
                         message_id = message.get("id")
                         if message_id:
+                            try:
+                                sender = value.get("contacts", [{}])[0].get("wa_id") or message.get("from")
+                                msg_type = next((k for k in ["text","image","audio","document"] if k in message), "unknown")
+                                log_user_interaction(str(sender or "unknown"), "whatsapp", msg_type)
+                            except Exception:
+                                pass
                             process_individual_message(message)
                         else:
                             logging.warning("Mensaje recibido sin ID.")

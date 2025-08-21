@@ -5,11 +5,18 @@ import re
 from openai import OpenAI
 from decouple import config
 
-from services.context_service import load_context, save_context
-from services.mcp_service import extract_url_from_message, link_reader_agent, mcp_pipeline
+from openIAService.services.context_service import load_context, save_context
+from openIAService.services.mcp_service import extract_url_from_message, link_reader_agent, mcp_pipeline
+from openIAService.services.cache_service import (
+    cache_openai_response, 
+    get_cached_openai_response,
+    get_cache_stats
+)
+from openIAService.services.metrics_service import measure_time, log_openai_usage
 
-# Configura la clave de API de OpenAI
-OPENAI_API_KEY = config('OPENAI_API_KEY')
+# Configura la clave de API de OpenAI (sanitiza comillas y espacios)
+raw_key = config('OPENAI_API_KEY', default='')
+OPENAI_API_KEY = raw_key.strip().strip('"').strip("'")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
@@ -23,7 +30,7 @@ def should_use_web_search_with_llm(user_question):
     )
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",   # Puedes cambiar a gpt-3.5-turbo si buscas ahorrar tokens
+            model="gpt-4o-mini",   # Cambia a "gpt-3.5-turbo" si quieres ahorrar más tokens
             messages=[
                 {"role": "system", "content": "Eres un detector de intención para un asistente conversacional."},
                 {"role": "user", "content": prompt},
@@ -40,9 +47,11 @@ def should_use_web_search_with_llm(user_question):
         return False
 
 
+@measure_time("openai_generate")
 def generate_openai_response(prompt, context, language, initial_instructions=None):
     """
     Genera una respuesta de OpenAI basada en el contexto de la conversación.
+    Utiliza caché para respuestas similares.
     """
     if initial_instructions:
         context = [initial_instructions] + context
@@ -52,15 +61,44 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
     if language != 'en':
         messages.insert(0, {"role": "system", "content": f"Por favor, responde en {language}."})
     
+    # Parámetros de la llamada
+    model = "gpt-4o-mini"
+    max_tokens = 600
+    temperature = 0.7
+    
+    # Verifica si hay una respuesta en caché
+    cached_response = get_cached_openai_response(messages, model, temperature, max_tokens)
+    if cached_response:
+        logging.info("[OPENAI] Respuesta obtenida desde caché")
+        try:
+            log_openai_usage(model, tokens_used=0, cached=True)
+        except Exception:
+            pass
+        return cached_response
+    
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=messages,
-            max_tokens=600,
-            temperature=0.7,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
         if response and response.choices:
-            return response.choices[0].message.content.strip()
+            result = response.choices[0].message.content.strip()
+            # Cachea la respuesta para futuras consultas similares
+            cache_openai_response(messages, model, temperature, max_tokens, result, ttl=3600)
+            logging.info("[OPENAI] Respuesta generada y cacheada")
+            # Métricas de uso de OpenAI
+            try:
+                usage = getattr(response, 'usage', None)
+                tokens = 0
+                if usage:
+                    # En el cliente OpenAI v1, usage puede tener total_tokens
+                    tokens = getattr(usage, 'total_tokens', 0) or usage.get('total_tokens', 0)
+                log_openai_usage(model, tokens_used=int(tokens) if tokens else 0, cached=False)
+            except Exception:
+                pass
+            return result
         return "No se pudo generar una respuesta."
     except Exception as e:
         logging.error(f"Error al generar respuesta con OpenAI: {e}")

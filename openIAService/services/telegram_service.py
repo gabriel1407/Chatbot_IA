@@ -1,13 +1,15 @@
 import requests
 import logging
 from decouple import config
-from services.openia_service import handle_text_message
-from services.files_processing_service import process_image, process_audio, process_document
-from services.context_service import (
+from openIAService.services.openia_service import handle_text_message
+from openIAService.services.files_processing_service import process_image, process_audio, process_document
+from openIAService.services.context_service import (
     load_context,
     detect_new_topic,
     get_active_context_id
 )
+from openIAService.services.metrics_service import log_user_interaction, measure_time
+from openIAService.services.task_queue_service import submit_task_by_name
 
 # Logger específico para Telegram
 telegram_logger = logging.getLogger("telegram")
@@ -48,6 +50,7 @@ def download_telegram_file(file_id, file_ext):
         telegram_logger.error(f"Error en download_telegram_file: {e}")
         return None
 
+@measure_time("telegram_process_update")
 def process_telegram_update(update):
     try:
         telegram_logger.info(f"Nuevo update recibido: {update}")
@@ -68,6 +71,10 @@ def process_telegram_update(update):
                 # No envíes ningún mensaje de aviso
             context = load_context(chat_id, context_id)
             telegram_logger.info(f"Mensaje de texto recibido de {chat_id}: {user_text}")
+            try:
+                log_user_interaction(chat_id, "telegram", "text")
+            except Exception:
+                pass
             response_text = handle_text_message(user_text, chat_id, context_id=context_id)
 
         elif "photo" in message:
@@ -79,18 +86,33 @@ def process_telegram_update(update):
                 context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             context = load_context(chat_id, context_id)
             file_path = download_telegram_file(file_id, "jpg")
-            response_text = handle_text_message(caption, chat_id, image_path=file_path, context_id=context_id)
+            try:
+                log_user_interaction(chat_id, "telegram", "photo")
+            except Exception:
+                pass
+            # Ack inmediato y procesamiento asíncrono mediante tarea importable
+            send_telegram_message(chat_id, "Procesando tu imagen...")
+            submit_task_by_name(
+                "openIAService.services.tasks:process_telegram_photo",
+                str(chat_id), str(context_id), str(caption or ""), str(file_path or "")
+            )
+            response_text = ""
 
         elif "audio" in message or "voice" in message:
             audio = message.get("audio") or message.get("voice")
             file_id = audio["file_id"]
             file_path = download_telegram_file(file_id, "ogg")
-            extracted_text = process_audio(file_path, 'es')
-            if detect_new_topic(extracted_text):
-                from datetime import datetime
-                context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            context = load_context(chat_id, context_id)
-            response_text = handle_text_message(extracted_text, chat_id, context_id=context_id)
+            try:
+                log_user_interaction(chat_id, "telegram", "audio")
+            except Exception:
+                pass
+            # Ack inmediato y procesamiento asíncrono mediante tarea importable
+            send_telegram_message(chat_id, "Procesando tu audio...")
+            submit_task_by_name(
+                "openIAService.services.tasks:process_telegram_audio",
+                str(chat_id), str(context_id), str(file_path or "")
+            )
+            response_text = ""
 
         elif "document" in message:
             document = message["document"]
@@ -99,19 +121,25 @@ def process_telegram_update(update):
             file_ext = "pdf" if "pdf" in mime_type else "docx" if "word" in mime_type else None
             if file_ext:
                 file_path = download_telegram_file(file_id, file_ext)
-                extracted_text = process_document(file_path, file_ext)
-                if detect_new_topic(extracted_text):
-                    from datetime import datetime
-                    context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                context = load_context(chat_id, context_id)
-                response_text = handle_text_message(extracted_text, chat_id, context_id=context_id)
+                try:
+                    log_user_interaction(chat_id, "telegram", "document")
+                except Exception:
+                    pass
+                # Ack inmediato y procesamiento asíncrono mediante tarea importable
+                send_telegram_message(chat_id, "Procesando tu documento...")
+                submit_task_by_name(
+                    "openIAService.services.tasks:process_telegram_document",
+                    str(chat_id), str(context_id), str(file_path or ""), str(file_ext)
+                )
+                response_text = ""
             else:
                 response_text = "Formato de documento no soportado."
         else:
             telegram_logger.warning(f"Tipo de mensaje no reconocido de {chat_id}: {message}")
             response_text = "Mensaje no reconocido."
 
-        send_telegram_message(chat_id, response_text)
-        telegram_logger.info(f"Respuesta enviada a {chat_id}: {response_text}")
+        if response_text:
+            send_telegram_message(chat_id, response_text)
+            telegram_logger.info(f"Respuesta enviada a {chat_id}: {response_text}")
     except Exception as e:
         telegram_logger.error(f"Error en process_telegram_update: {e}")

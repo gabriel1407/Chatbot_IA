@@ -2,9 +2,10 @@ import requests
 import json
 import logging
 from decouple import config
-from services.openia_service import handle_text_message
-from services.files_processing_service import process_image, process_audio, process_document
-from services.context_service import load_context, save_context, detect_new_topic, get_active_context_id
+from openIAService.services.openia_service import handle_text_message
+from openIAService.services.files_processing_service import process_image, process_audio, process_document
+from openIAService.services.context_service import load_context, save_context, detect_new_topic, get_active_context_id
+from openIAService.services.task_queue_service import submit_task_by_name
 
 
 TOKEN_WHATSAPP = config('TOKEN_WHATSAPP')
@@ -74,21 +75,24 @@ def process_individual_message(message):
                 send_whatsapp_message(create_text_message(
                     recipient, ""
                 ))
-            context = load_context(recipient, context_id)
-            response_text = handle_text_message(caption, recipient, image_path=file_path, context_id=context_id)
+            # Ack inmediato y procesamiento asíncrono mediante tarea importable
+            send_whatsapp_message(create_text_message(recipient, "Procesando tu imagen..."))
+            submit_task_by_name(
+                "openIAService.services.tasks:process_whatsapp_image",
+                str(recipient), str(context_id), str(caption or ""), str(file_path or "")
+            )
+            response_text = None
 
         elif "audio" in message:
             audio_id = message["audio"]["id"]
             file_path = download_media(audio_id, "audio/ogg")
-            extracted_text = process_audio(file_path, 'es')
-            if detect_new_topic(extracted_text):
-                from datetime import datetime
-                context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                send_whatsapp_message(create_text_message(
-                    recipient, ""
-                ))
-            context = load_context(recipient, context_id)
-            response_text = handle_text_message(extracted_text, recipient, context_id=context_id)
+            # Ack inmediato y procesamiento asíncrono mediante tarea importable
+            send_whatsapp_message(create_text_message(recipient, "Procesando tu audio..."))
+            submit_task_by_name(
+                "openIAService.services.tasks:process_whatsapp_audio",
+                str(recipient), str(context_id), str(file_path or "")
+            )
+            response_text = None
 
         elif "document" in message:
             document_id = message["document"]["id"]
@@ -96,22 +100,21 @@ def process_individual_message(message):
             file_extension = "pdf" if "pdf" in mime_type else "docx" if "word" in mime_type else None
             if file_extension:
                 file_path = download_media(document_id, f"application/{file_extension}")
-                extracted_text = process_document(file_path, file_extension)
-                if detect_new_topic(extracted_text):
-                    from datetime import datetime
-                    context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                    send_whatsapp_message(create_text_message(
-                        recipient, ""
-                    ))
-                context = load_context(recipient, context_id)
-                response_text = handle_text_message(extracted_text, recipient, context_id=context_id)
+                # Ack inmediato y procesamiento asíncrono mediante tarea importable
+                send_whatsapp_message(create_text_message(recipient, "Procesando tu documento..."))
+                submit_task_by_name(
+                    "openIAService.services.tasks:process_whatsapp_document",
+                    str(recipient), str(context_id), str(file_path or ""), str(file_extension)
+                )
+                response_text = None
             else:
                 response_text = "Formato de documento no soportado."
         else:
             response_text = "Mensaje no reconocido."
 
-        response_message = create_text_message(recipient, response_text)
-        send_whatsapp_message(response_message)
+        if response_text is not None:
+            response_message = create_text_message(recipient, response_text)
+            send_whatsapp_message(response_message)
     except Exception as e:
         logging.error(f"Error en process_individual_message: {e}")
 

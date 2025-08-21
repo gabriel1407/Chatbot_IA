@@ -2,24 +2,69 @@ import os
 import json
 import sqlite3
 import logging
+import threading
+import time
 from datetime import datetime
+from queue import Queue, Empty
+from contextlib import contextmanager
+from openIAService.services.cache_service import cache_user_context, get_cached_user_context, invalidate_user_context
 
 DB_PATH = os.path.join('local', 'contextos.db')
 if not os.path.exists('local'):
     os.makedirs('local')
 
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_context (
-            user_id TEXT,
-            context_id TEXT,
-            context TEXT,
-            last_updated TIMESTAMP,
-            PRIMARY KEY (user_id, context_id)
-        )
-    """)
-    return conn
+class ConnectionPool:
+    """Pool de conexiones SQLite para mejorar el rendimiento."""
+    
+    def __init__(self, database_path: str, pool_size: int = 10):
+        self.database_path = database_path
+        self.pool_size = pool_size
+        self.pool = Queue(maxsize=pool_size)
+        self.lock = threading.Lock()
+        self._initialize_pool()
+    
+    def _initialize_pool(self):
+        """Inicializa el pool con conexiones."""
+        for _ in range(self.pool_size):
+            conn = sqlite3.connect(self.database_path, check_same_thread=False)
+            conn.execute("PRAGMA journal_mode=WAL")  # Mejora el rendimiento
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA cache_size=10000")
+            conn.execute("PRAGMA temp_store=MEMORY")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_context (
+                    user_id TEXT,
+                    context_id TEXT,
+                    context TEXT,
+                    last_updated TIMESTAMP,
+                    PRIMARY KEY (user_id, context_id)
+                )
+            """)
+            conn.commit()
+            self.pool.put(conn)
+    
+    @contextmanager
+    def get_connection(self):
+        """Context manager para obtener una conexión del pool."""
+        conn = None
+        try:
+            conn = self.pool.get(timeout=5)
+            yield conn
+        except Empty:
+            # Si no hay conexiones disponibles, crea una temporal
+            logging.warning("[DB] Pool agotado, creando conexión temporal")
+            conn = sqlite3.connect(self.database_path, check_same_thread=False)
+            yield conn
+        finally:
+            if conn:
+                try:
+                    self.pool.put_nowait(conn)
+                except:
+                    # Si el pool está lleno, cierra la conexión
+                    conn.close()
+
+# Instancia global del pool de conexiones
+connection_pool = ConnectionPool(DB_PATH, pool_size=10)
 
 def get_active_context_id(user_id):
     """
@@ -27,16 +72,15 @@ def get_active_context_id(user_id):
     Si no hay, devuelve 'default'.
     """
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT context_id FROM user_context WHERE user_id = ? ORDER BY last_updated DESC LIMIT 1",
-            (str(user_id),)
-        )
-        row = cursor.fetchone()
-        conn.close()
-        if row and row[0]:
-            return row[0]
+        with connection_pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT context_id FROM user_context WHERE user_id = ? ORDER BY last_updated DESC LIMIT 1",
+                (str(user_id),)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return row[0]
     except Exception as e:
         logging.error(f"[Context] Error recuperando context_id para usuario {user_id}: {e}")
     return "default"
@@ -44,29 +88,38 @@ def get_active_context_id(user_id):
 def load_context(user_id, context_id=None):
     """
     Carga el contexto (historial) de un usuario y un context_id (tema).
+    Primero verifica el caché, luego la base de datos.
     """
     if context_id is None:
         context_id = get_active_context_id(user_id)
+    
+    # Intenta obtener del caché primero
+    cached_context = get_cached_user_context(user_id, context_id)
+    if cached_context is not None:
+        logging.info(f"[Context] Contexto cargado desde caché para usuario {user_id} ({context_id})")
+        return cached_context
+    
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT context FROM user_context WHERE user_id = ? AND context_id = ?",
-            (str(user_id), str(context_id))
-        )
-        row = cursor.fetchone()
-        conn.close()
-        if row and row[0]:
-            try:
-                context = json.loads(row[0])
-                logging.info(f"[Context] Contexto cargado para usuario {user_id} ({context_id}): {context}")
-                return context
-            except Exception as e:
-                logging.error(f"[Context] Error decodificando JSON de contexto para usuario {user_id} ({context_id}): {e}")
-                save_context(user_id, [], context_id)  # limpia
-                return []
-        logging.info(f"[Context] No existe contexto previo para usuario {user_id} ({context_id}).")
-        return []
+        with connection_pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT context FROM user_context WHERE user_id = ? AND context_id = ?",
+                (str(user_id), str(context_id))
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                try:
+                    context = json.loads(row[0])
+                    # Cachea el contexto para futuras consultas
+                    cache_user_context(user_id, context_id, context)
+                    logging.info(f"[Context] Contexto cargado desde DB para usuario {user_id} ({context_id})")
+                    return context
+                except Exception as e:
+                    logging.error(f"[Context] Error decodificando JSON de contexto para usuario {user_id} ({context_id}): {e}")
+                    save_context(user_id, [], context_id)  # limpia
+                    return []
+            logging.info(f"[Context] No existe contexto previo para usuario {user_id} ({context_id}).")
+            return []
     except Exception as e:
         logging.error(f"[Context] Error cargando contexto de usuario {user_id} desde DB: {e}")
         return []
@@ -74,20 +127,23 @@ def load_context(user_id, context_id=None):
 def save_context(user_id, context, context_id=None):
     """
     Guarda el contexto para un usuario y un context_id (tema).
+    También actualiza el caché.
     """
     if context_id is None:
         context_id = "default"
     try:
         context_json = json.dumps(context, ensure_ascii=False)
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO user_context (user_id, context_id, context, last_updated) VALUES (?, ?, ?, ?)",
-            (str(user_id), str(context_id), context_json, datetime.now())
-        )
-        conn.commit()
-        conn.close()
-        logging.info(f"[Context] Contexto guardado para usuario {user_id} ({context_id}): {context}")
+        with connection_pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO user_context (user_id, context_id, context, last_updated) VALUES (?, ?, ?, ?)",
+                (str(user_id), str(context_id), context_json, datetime.now())
+            )
+            conn.commit()
+        
+        # Actualiza el caché
+        cache_user_context(user_id, context_id, context)
+        logging.info(f"[Context] Contexto guardado para usuario {user_id} ({context_id})")
     except Exception as e:
         logging.error(f"[Context] Error guardando contexto para usuario {user_id} ({context_id}): {e}")
 
@@ -96,15 +152,14 @@ def list_contexts(user_id):
     Lista todos los context_id (temas) existentes para el usuario.
     """
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT context_id, last_updated FROM user_context WHERE user_id = ? ORDER BY last_updated DESC",
-            (str(user_id),)
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        return rows
+        with connection_pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT context_id, last_updated FROM user_context WHERE user_id = ? ORDER BY last_updated DESC",
+                (str(user_id),)
+            )
+            rows = cursor.fetchall()
+            return rows
     except Exception as e:
         logging.error(f"[Context] Error listando contextos de usuario {user_id}: {e}")
         return []
@@ -112,16 +167,19 @@ def list_contexts(user_id):
 def delete_context(user_id, context_id):
     """
     Borra un contexto específico de un usuario.
+    También lo elimina del caché.
     """
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "DELETE FROM user_context WHERE user_id = ? AND context_id = ?",
-            (str(user_id), str(context_id))
-        )
-        conn.commit()
-        conn.close()
+        with connection_pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM user_context WHERE user_id = ? AND context_id = ?",
+                (str(user_id), str(context_id))
+            )
+            conn.commit()
+        
+        # Elimina del caché
+        invalidate_user_context(user_id, context_id)
         logging.info(f"[Context] Contexto eliminado para usuario {user_id} ({context_id})")
     except Exception as e:
         logging.error(f"[Context] Error eliminando contexto para usuario {user_id} ({context_id}): {e}")

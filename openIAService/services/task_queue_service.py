@@ -1,0 +1,78 @@
+import threading
+import queue
+import logging
+from typing import Callable, Any
+from decouple import config
+
+# Optional Redis RQ support
+_rq_queue = None
+try:
+    from redis import Redis
+    from rq import Queue
+    REDIS_URL = config('REDIS_URL', default='')
+    if REDIS_URL:
+        _rq_queue = Queue(connection=Redis.from_url(REDIS_URL))
+        logging.info("[TASK-QUEUE] Using Redis RQ queue")
+except Exception as e:
+    logging.info(f"[TASK-QUEUE] Redis RQ not available: {e}")
+
+# Fallback in-memory queue
+_tasks: "queue.Queue[tuple[Callable, tuple, dict]]" = queue.Queue()
+_started = False
+_lock = threading.Lock()
+
+
+def _worker():
+    while True:
+        try:
+            func, args, kwargs = _tasks.get()
+            try:
+                func(*args, **kwargs)
+            except Exception as e:
+                logging.error(f"[TASK-QUEUE] Error executing task {getattr(func, '__name__', str(func))}: {e}")
+            finally:
+                _tasks.task_done()
+        except Exception as e:
+            logging.error(f"[TASK-QUEUE] Worker error: {e}")
+
+
+def start_worker():
+    global _started
+    if _rq_queue is not None:
+        # Redis-based, external worker recommended, no local thread needed
+        logging.info("[TASK-QUEUE] Redis RQ mode: external worker expected")
+        return
+    with _lock:
+        if _started:
+            return
+        t = threading.Thread(target=_worker, name="task-worker", daemon=True)
+        t.start()
+        _started = True
+        logging.info("[TASK-QUEUE] In-memory worker started")
+
+
+def is_distributed() -> bool:
+    return _rq_queue is not None
+
+
+def submit_task_by_name(func_path: str, *args: Any, **kwargs: Any) -> None:
+    """Enqueue a task by import path 'module.sub:function'."""
+    if _rq_queue is not None:
+        _rq_queue.enqueue(func_path, *args, **kwargs)
+        return
+    # Fallback: resolve and run via in-memory queue
+    module_name, func_name = func_path.split(":")
+    mod = __import__(module_name, fromlist=[func_name])
+    func = getattr(mod, func_name)
+    submit_task(func, *args, **kwargs)
+
+
+def submit_task(func: Callable, *args: Any, **kwargs: Any) -> None:
+    if _rq_queue is not None:
+        # Enqueue by name when possible
+        func_path = f"{func.__module__}:{func.__name__}"
+        submit_task_by_name(func_path, *args, **kwargs)
+        return
+    if not _started:
+        start_worker()
+    _tasks.put((func, args, kwargs))

@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: chatbot-redis
+    restart: unless-stopped
+
+  rq-worker:
+    image: python:3.11-slim
+    container_name: chatbot-rq-worker
+    working_dir: /app
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+    depends_on:
+      - redis
+    command: >
+      bash -lc "pip install --no-cache-dir -r requirements.txt && rq worker --url $REDIS_URL"
+
+  app:
+    build:
+      context: ..
+      dockerfile: Chatbot_IA/Dockerfile
+    container_name: chatbot-app
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8082:8082"
+    depends_on:
+      - redis
+    command: []

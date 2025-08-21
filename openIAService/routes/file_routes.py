@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 import os
 import logging
 from werkzeug.utils import secure_filename
-from services.files_processing_service import process_pdf
+from openIAService.services.files_processing_service import process_pdf
 
 file_bp = Blueprint('file', __name__)
 UPLOAD_FOLDER = os.path.join('local', 'uploads')
