@@ -38,7 +38,7 @@ services:
       - "8082:8082"
     depends_on:
       - redis
-    command: []
+    command: ["gunicorn","openIAService.main:app","--timeout","120","--workers","2","--threads","4","--bind","0.0.0.0:8082","--access-logfile","-","--error-logfile","-"]
     volumes:
       - uploads:/app/Chatbot_IA/local/uploads
 

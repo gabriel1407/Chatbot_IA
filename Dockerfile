@@ -1,10 +1,11 @@
 # Base image
 FROM python:3.11-slim
 
-# System deps (optional: tesseract, ffmpeg, etc., if needed by your processing)
-# Install ffmpeg for pydub/audio processing
+# System deps for audio and image processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    tesseract-ocr \
+    tesseract-ocr-spa \
  && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -13,7 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app/Chatbot_IA
 
 # Install Python deps first for better cache
-COPY Chatbot_IA/requirements.txt /app/Chatbot_IA/requirements.txt
+COPY requirements.txt /app/Chatbot_IA/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir gunicorn
 
