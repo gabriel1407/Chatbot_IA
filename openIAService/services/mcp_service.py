@@ -37,7 +37,7 @@ def link_reader_agent(url, question=None):
     ]
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5o-mini",
             messages=context,
             max_tokens=700,
             temperature=0.7,
@@ -94,7 +94,7 @@ def chatgpt_agent(query, web_results):
     ]
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5o-mini",
             messages=context,
             max_tokens=600,
             temperature=0.7,
