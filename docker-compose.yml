@@ -26,7 +26,7 @@ services:
       - uploads:/app/Chatbot_IA/local/uploads
     depends_on:
       - redis
-    command: ["python", "worker_config.py"]
+    command: ["python", "/app/worker_config.py"]
 
   app:
     build:
