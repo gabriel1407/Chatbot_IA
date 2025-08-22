@@ -5,7 +5,9 @@ services:
     restart: unless-stopped
 
   rq-worker:
-    image: python:3.11-slim
+    build:
+      context: ..
+      dockerfile: Chatbot_IA/Dockerfile.rq
     container_name: chatbot-rq-worker
     working_dir: /app
     restart: unless-stopped
@@ -17,8 +19,7 @@ services:
       - uploads:/app/local/uploads
     depends_on:
       - redis
-    command: >
-      bash -lc "apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/* && pip install --no-cache-dir -r requirements.txt && rq worker --url $$REDIS_URL"
+    command: ["bash", "-lc", "rq worker --url $$REDIS_URL"]
 
   app:
     build:

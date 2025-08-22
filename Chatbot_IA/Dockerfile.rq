@@ -1,0 +1,24 @@
+# RQ Worker image
+FROM python:3.11-slim
+
+# Install system deps (ffmpeg for pydub/audio processing)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Set workdir where code will be mounted
+WORKDIR /app
+
+# Install Python deps once at build time
+# Copy only requirements to leverage Docker layer cache
+COPY Chatbot_IA/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && \
+    pip install --no-cache-dir rq
+
+# Code will be mounted at runtime via volume
+
+# Default command can be overridden in compose
+CMD ["bash", "-lc", "rq worker --url $REDIS_URL"]
