@@ -30,7 +30,7 @@ def should_use_web_search_with_llm(user_question):
     )
     try:
         response = client.chat.completions.create(
-            model="gpt-5",   # Cambia a "gpt-3.5-turbo" si quieres ahorrar más tokens
+            model="gpt-4o",   # Modelo válido de OpenAI
             messages=[
                 {"role": "system", "content": "Eres un detector de intención para un asistente conversacional."},
                 {"role": "user", "content": prompt},
@@ -61,7 +61,7 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
         messages.insert(0, {"role": "system", "content": f"Por favor, responde en {language}."})
     
     # Parámetros de la llamada
-    model = "gpt-5"
+    model = "gpt-4o"
     max_completion_tokens = 600
     
     # Verifica si hay una respuesta en caché
@@ -118,7 +118,7 @@ def generate_openai_vision_response(prompt, image_path, language='es'):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5",  # Modelo recomendado para visión y texto
+            model="gpt-4o",  # Modelo recomendado para visión y texto
             messages=messages,
             max_completion_tokens=800,
         )

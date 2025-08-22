@@ -37,7 +37,7 @@ def link_reader_agent(url, question=None):
     ]
     try:
         response = client.chat.completions.create(
-            model="gpt-5",
+            model="gpt-4o",
             messages=context,
             max_completion_tokens=700,
         )
@@ -93,7 +93,7 @@ def chatgpt_agent(query, web_results):
     ]
     try:
         response = client.chat.completions.create(
-            model="gpt-5",
+            model="gpt-4o",
             messages=context,
             max_completion_tokens=600,
         )

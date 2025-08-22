@@ -160,7 +160,7 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
     
     # Realiza la llamada a la API de OpenAI para obtener una respuesta
     response = client.chat.completions.create(
-        model="gpt-5",
+        model="gpt-4o",
         messages=message,
         max_completion_tokens=600,
     )
