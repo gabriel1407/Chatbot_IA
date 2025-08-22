@@ -40,7 +40,6 @@ def link_reader_agent(url, question=None):
             model="gpt-5",
             messages=context,
             max_completion_tokens=700,
-            temperature=0.7,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -97,7 +96,6 @@ def chatgpt_agent(query, web_results):
             model="gpt-5",
             messages=context,
             max_completion_tokens=600,
-            temperature=0.7,
         )
         if response and response.choices:
             logging.info("[MCP][ChatGPT] Respuesta generada correctamente.")

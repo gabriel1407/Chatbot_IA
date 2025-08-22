@@ -163,7 +163,6 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
         model="gpt-5",
         messages=message,
         max_completion_tokens=600,
-        temperature=0.7,
     )
     
     if response and response.choices:
