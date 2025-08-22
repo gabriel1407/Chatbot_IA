@@ -16,7 +16,7 @@ if not os.path.exists('local'):
 class ConnectionPool:
     """Pool de conexiones SQLite para mejorar el rendimiento."""
     
-    def __init__(self, database_path: str, pool_size: int = 10):
+    def __init__(self, database_path: str, pool_size: int = 20):
         self.database_path = database_path
         self.pool_size = pool_size
         self.pool = Queue(maxsize=pool_size)
@@ -60,7 +60,7 @@ class ConnectionPool:
         """Context manager para obtener una conexión del pool."""
         conn = None
         try:
-            conn = self.pool.get(timeout=5)
+            conn = self.pool.get(timeout=15)
             yield conn
         except Empty:
             # Si no hay conexiones disponibles, crea una temporal
@@ -76,7 +76,7 @@ class ConnectionPool:
                     conn.close()
 
 # Instancia global del pool de conexiones
-connection_pool = ConnectionPool(DB_PATH, pool_size=10)
+connection_pool = ConnectionPool(DB_PATH, pool_size=20)
 
 def get_active_context_id(user_id):
     """

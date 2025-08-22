@@ -145,8 +145,15 @@ def process_telegram_update(update):
             telegram_logger.warning(f"Tipo de mensaje no reconocido de {chat_id}: {message}")
             response_text = "Mensaje no reconocido."
 
-        if response_text:
+        if response_text and response_text.strip():
             send_telegram_message(chat_id, response_text)
             telegram_logger.info(f"Respuesta enviada a {chat_id}: {response_text}")
+        else:
+            telegram_logger.warning(f"Respuesta vacía generada para {chat_id}, enviando mensaje por defecto")
+            send_telegram_message(chat_id, "Lo siento, no pude procesar tu mensaje correctamente. Por favor, inténtalo de nuevo.")
     except Exception as e:
         telegram_logger.error(f"Error en process_telegram_update: {e}")
+        try:
+            send_telegram_message(chat_id, "Ocurrió un error procesando tu mensaje. Por favor, inténtalo más tarde.")
+        except:
+            pass

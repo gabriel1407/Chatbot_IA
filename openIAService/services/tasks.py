@@ -67,11 +67,21 @@ def process_telegram_audio(chat_id: str, context_id: str, file_path: str):
     logging.info(f"[TASK] TG audio START chat_id={chat_id} context_id={context_id} file_path={file_path}")
     try:
         extracted_text = process_audio(file_path, 'es')
+        if not extracted_text or not extracted_text.strip():
+            logging.warning(f"[TASK] TG audio empty text extracted from {file_path}")
+            send_telegram_message(chat_id, "No pude transcribir el audio. Verifica que el archivo contenga audio claro.")
+            return
+            
         if detect_new_topic(extracted_text):
             from datetime import datetime
             context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         context = load_context(chat_id, context_id)
         response_text = handle_text_message(extracted_text, chat_id, context_id=context_id)
+        
+        if not response_text or not response_text.strip():
+            logging.warning(f"[TASK] TG audio empty response generated for chat_id={chat_id}")
+            response_text = "Escuché tu audio pero no pude generar una respuesta. Por favor, inténtalo de nuevo."
+            
         send_telegram_message(chat_id, response_text)
         logging.info(f"[TASK] TG audio DONE chat_id={chat_id} context_id={context_id}")
     except Exception as e:
@@ -83,11 +93,21 @@ def process_telegram_document(chat_id: str, context_id: str, file_path: str, fil
     logging.info(f"[TASK] TG document START chat_id={chat_id} context_id={context_id} file_path={file_path} ext={file_ext}")
     try:
         extracted_text = process_document(file_path, file_ext)
+        if not extracted_text or not extracted_text.strip():
+            logging.warning(f"[TASK] TG document empty text extracted from {file_path}")
+            send_telegram_message(chat_id, "No pude extraer texto del documento. Verifica que el archivo contenga texto legible.")
+            return
+            
         if detect_new_topic(extracted_text):
             from datetime import datetime
             context_id = f"tema_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         context = load_context(chat_id, context_id)
         response_text = handle_text_message(extracted_text, chat_id, context_id=context_id)
+        
+        if not response_text or not response_text.strip():
+            logging.warning(f"[TASK] TG document empty response generated for chat_id={chat_id}")
+            response_text = "Procesé tu documento pero no pude generar una respuesta. Por favor, inténtalo de nuevo."
+            
         send_telegram_message(chat_id, response_text)
         logging.info(f"[TASK] TG document DONE chat_id={chat_id} context_id={context_id}")
     except Exception as e:

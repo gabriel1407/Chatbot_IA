@@ -1,7 +1,7 @@
 from flask import Blueprint, request
 from openIAService.services.telegram_service import process_telegram_update, send_telegram_message
 from openIAService.services.metrics_service import measure_time
-from openIAService.services.rate_limiter_service import is_allowed
+from openIAService.services.rate_limiter_cleanup import is_allowed
 
 telegram_bp = Blueprint('telegram_bp', __name__)
 

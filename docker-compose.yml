@@ -3,6 +3,9 @@ services:
     image: redis:7-alpine
     container_name: chatbot-redis
     restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
+    volumes:
+      - redis_data:/data
 
   rq-worker:
     build:
@@ -16,12 +19,14 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0
+      - RQ_WORKER_TTL=1800
+      - RQ_JOB_TIMEOUT=300
     volumes:
       - ./:/app
       - uploads:/app/Chatbot_IA/local/uploads
     depends_on:
       - redis
-    command: ["bash", "-lc", "rq worker --url $$REDIS_URL"]
+    command: ["bash", "-lc", "rq worker --url $$REDIS_URL --job-timeout 300"]
 
   app:
     build:
@@ -38,9 +43,10 @@ services:
       - "8082:8082"
     depends_on:
       - redis
-    command: ["gunicorn","openIAService.main:app","--timeout","120","--workers","2","--threads","4","--bind","0.0.0.0:8082","--access-logfile","-","--error-logfile","-"]
+    command: ["gunicorn","openIAService.main:app","--timeout","180","--workers","1","--threads","8","--bind","0.0.0.0:8082","--access-logfile","-","--error-logfile","-"]
     volumes:
       - uploads:/app/Chatbot_IA/local/uploads
 
 volumes:
   uploads:
+  redis_data:
