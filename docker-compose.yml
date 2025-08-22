@@ -6,8 +6,8 @@ services:
 
   rq-worker:
     build:
-      context: ..
-      dockerfile: Chatbot_IA/Dockerfile.rq
+      context: .
+      dockerfile: Dockerfile.rq
     container_name: chatbot-rq-worker
     working_dir: /app/Chatbot_IA
     restart: unless-stopped
