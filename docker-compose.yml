@@ -26,7 +26,7 @@ services:
       - uploads:/app/Chatbot_IA/local/uploads
     depends_on:
       - redis
-    command: ["bash", "-lc", "rq worker --url $$REDIS_URL --job-timeout 300"]
+    command: ["python", "worker_config.py"]
 
   app:
     build:
