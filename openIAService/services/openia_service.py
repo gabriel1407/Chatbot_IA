@@ -35,8 +35,8 @@ def should_use_web_search_with_llm(user_question):
                 {"role": "system", "content": "Eres un detector de intención para un asistente conversacional."},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=5,
-            temperature=0
+            max_completion_tokens=150,
+            temperature=0.3,
         )
         decision = response.choices[0].message.content.strip().upper()
         logging.info(f"[LLM-INTENT] Clasificador para pregunta '{user_question}': {decision}")
@@ -63,11 +63,11 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
     
     # Parámetros de la llamada
     model = "gpt-5"
-    max_tokens = 600
+    max_completion_tokens = 600
     temperature = 0.7
     
     # Verifica si hay una respuesta en caché
-    cached_response = get_cached_openai_response(messages, model, temperature, max_tokens)
+    cached_response = get_cached_openai_response(messages, model, temperature, max_completion_tokens)
     if cached_response:
         logging.info("[OPENAI] Respuesta obtenida desde caché")
         try:
@@ -80,13 +80,13 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
         response = client.chat.completions.create(
             model=model,
             messages=messages,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
             temperature=temperature,
         )
         if response and response.choices:
             result = response.choices[0].message.content.strip()
             # Cachea la respuesta para futuras consultas similares
-            cache_openai_response(messages, model, temperature, max_tokens, result, ttl=3600)
+            cache_openai_response(messages, model, temperature, max_completion_tokens, result, ttl=3600)
             logging.info("[OPENAI] Respuesta generada y cacheada")
             # Métricas de uso de OpenAI
             try:
@@ -123,7 +123,7 @@ def generate_openai_vision_response(prompt, image_path, language='es'):
         response = client.chat.completions.create(
             model="gpt-5",  # Modelo recomendado para visión y texto
             messages=messages,
-            max_tokens=800,
+            max_completion_tokens=800,
         )
         if response and response.choices:
             return response.choices[0].message.content.strip()

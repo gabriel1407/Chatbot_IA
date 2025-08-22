@@ -39,7 +39,7 @@ def link_reader_agent(url, question=None):
         response = client.chat.completions.create(
             model="gpt-5",
             messages=context,
-            max_tokens=700,
+            max_completion_tokens=700,
             temperature=0.7,
         )
         return response.choices[0].message.content.strip()
@@ -96,7 +96,7 @@ def chatgpt_agent(query, web_results):
         response = client.chat.completions.create(
             model="gpt-5",
             messages=context,
-            max_tokens=600,
+            max_completion_tokens=600,
             temperature=0.7,
         )
         if response and response.choices:

@@ -162,7 +162,7 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
     response = client.chat.completions.create(
         model="gpt-5",
         messages=message,
-        max_tokens=600,
+        max_completion_tokens=600,
         temperature=0.7,
     )
     
