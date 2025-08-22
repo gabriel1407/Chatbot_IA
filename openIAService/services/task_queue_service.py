@@ -58,13 +58,17 @@ def is_distributed() -> bool:
 def submit_task_by_name(func_path: str, *args: Any, **kwargs: Any) -> None:
     """Enqueue a task by import path 'module.sub:function'."""
     if _rq_queue is not None:
-        # RQ needs the actual function object, not a string path
+        # For RQ, use string path but ensure it's importable format
         try:
-            module_name, func_name = func_path.split(":")
-            mod = __import__(module_name, fromlist=[func_name])
-            func = getattr(mod, func_name)
-            job = _rq_queue.enqueue(func, *args, **kwargs)
-            logging.info(f"[TASK-QUEUE] Enqueued RQ job func={func_path} job_id={getattr(job, 'id', None)} args_len={len(args)} kwargs_keys={list(kwargs.keys())}")
+            # Convert colon format to dot format for RQ
+            if ":" in func_path:
+                module_name, func_name = func_path.split(":")
+                rq_func_path = f"{module_name}.{func_name}"
+            else:
+                rq_func_path = func_path
+            
+            job = _rq_queue.enqueue(rq_func_path, *args, **kwargs)
+            logging.info(f"[TASK-QUEUE] Enqueued RQ job func={rq_func_path} job_id={getattr(job, 'id', None)} args_len={len(args)} kwargs_keys={list(kwargs.keys())}")
         except Exception as e:
             logging.error(f"[TASK-QUEUE] Failed to enqueue RQ job func={func_path}: {e}")
         return
