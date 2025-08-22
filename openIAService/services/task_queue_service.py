@@ -58,13 +58,15 @@ def is_distributed() -> bool:
 def submit_task_by_name(func_path: str, *args: Any, **kwargs: Any) -> None:
     """Enqueue a task by import path 'module.sub:function'."""
     if _rq_queue is not None:
-        # RQ espera ruta con puntos: module.sub.function
-        dotted_path = func_path.replace(":", ".") if ":" in func_path else func_path
+        # RQ needs the actual function object, not a string path
         try:
-            job = _rq_queue.enqueue(dotted_path, *args, **kwargs)
-            logging.info(f"[TASK-QUEUE] Enqueued RQ job func={dotted_path} job_id={getattr(job, 'id', None)} args_len={len(args)} kwargs_keys={list(kwargs.keys())}")
+            module_name, func_name = func_path.split(":")
+            mod = __import__(module_name, fromlist=[func_name])
+            func = getattr(mod, func_name)
+            job = _rq_queue.enqueue(func, *args, **kwargs)
+            logging.info(f"[TASK-QUEUE] Enqueued RQ job func={func_path} job_id={getattr(job, 'id', None)} args_len={len(args)} kwargs_keys={list(kwargs.keys())}")
         except Exception as e:
-            logging.error(f"[TASK-QUEUE] Failed to enqueue RQ job func={dotted_path}: {e}")
+            logging.error(f"[TASK-QUEUE] Failed to enqueue RQ job func={func_path}: {e}")
         return
     # Fallback: resolve and run via in-memory queue
     module_name, func_name = func_path.split(":")
@@ -75,11 +77,12 @@ def submit_task_by_name(func_path: str, *args: Any, **kwargs: Any) -> None:
 
 def submit_task(func: Callable, *args: Any, **kwargs: Any) -> None:
     if _rq_queue is not None:
-        # Enqueue by name when possible
-        # Use dotted path for RQ
-        dotted_path = f"{func.__module__}.{func.__name__}"
-        logging.info(f"[TASK-QUEUE] Submitting task by name for RQ func={dotted_path}")
-        submit_task_by_name(dotted_path, *args, **kwargs)
+        # Enqueue function directly to RQ
+        try:
+            job = _rq_queue.enqueue(func, *args, **kwargs)
+            logging.info(f"[TASK-QUEUE] Enqueued RQ job func={func.__module__}.{func.__name__} job_id={getattr(job, 'id', None)} args_len={len(args)} kwargs_keys={list(kwargs.keys())}")
+        except Exception as e:
+            logging.error(f"[TASK-QUEUE] Failed to enqueue RQ job func={func.__module__}.{func.__name__}: {e}")
         return
     if not _started:
         start_worker()
