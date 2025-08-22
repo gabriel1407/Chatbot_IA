@@ -13,8 +13,8 @@ def main():
     # Connect to Redis
     redis_conn = redis.from_url(redis_url)
     
-    # Create worker with custom job timeout (5 minutes)
-    worker = Worker(['default'], connection=redis_conn, job_timeout=300)
+    # Create worker with default settings (RQ 1.16.2 doesn't support job_timeout in constructor)
+    worker = Worker(['default'], connection=redis_conn)
     
     print(f"Starting RQ worker with job timeout: 300 seconds")
     print(f"Redis URL: {redis_url}")
