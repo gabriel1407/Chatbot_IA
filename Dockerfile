@@ -14,7 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app/Chatbot_IA
 
 # Install Python deps first for better cache
-COPY requirements.txt /app/Chatbot_IA/requirements.txt
+COPY Chatbot_IA/requirements.txt /app/Chatbot_IA/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir gunicorn
 
