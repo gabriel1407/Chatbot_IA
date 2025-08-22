@@ -96,6 +96,7 @@ def process_telegram_update(update):
                 pass
             # Ack inmediato y procesamiento asíncrono mediante tarea importable
             send_telegram_message(chat_id, "Procesando tu imagen...")
+            telegram_logger.info(f"[ENQUEUE] TG photo chat_id={chat_id} context_id={context_id} file_path={file_path}")
             submit_task_by_name(
                 "openIAService.services.tasks:process_telegram_photo",
                 str(chat_id), str(context_id), str(caption or ""), str(file_path or "")
@@ -112,6 +113,7 @@ def process_telegram_update(update):
                 pass
             # Ack inmediato y procesamiento asíncrono mediante tarea importable
             send_telegram_message(chat_id, "Procesando tu audio...")
+            telegram_logger.info(f"[ENQUEUE] TG audio chat_id={chat_id} context_id={context_id} file_path={file_path}")
             submit_task_by_name(
                 "openIAService.services.tasks:process_telegram_audio",
                 str(chat_id), str(context_id), str(file_path or "")
@@ -131,6 +133,7 @@ def process_telegram_update(update):
                     pass
                 # Ack inmediato y procesamiento asíncrono mediante tarea importable
                 send_telegram_message(chat_id, "Procesando tu documento...")
+                telegram_logger.info(f"[ENQUEUE] TG document chat_id={chat_id} context_id={context_id} file_path={file_path} ext={file_ext}")
                 submit_task_by_name(
                     "openIAService.services.tasks:process_telegram_document",
                     str(chat_id), str(context_id), str(file_path or ""), str(file_ext)

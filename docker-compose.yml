@@ -9,14 +9,16 @@ services:
       context: ..
       dockerfile: Chatbot_IA/Dockerfile.rq
     container_name: chatbot-rq-worker
-    working_dir: /app
+    working_dir: /app/Chatbot_IA
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./:/app
-      - uploads:/app/local/uploads
+      - uploads:/app/Chatbot_IA/local/uploads
     depends_on:
       - redis
     command: ["bash", "-lc", "rq worker --url $$REDIS_URL"]
@@ -27,6 +29,8 @@ services:
       dockerfile: Chatbot_IA/Dockerfile
     container_name: chatbot-app
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0

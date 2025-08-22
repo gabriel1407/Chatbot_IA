@@ -77,6 +77,7 @@ def process_individual_message(message):
                 ))
             # Ack inmediato y procesamiento asíncrono mediante tarea importable
             send_whatsapp_message(create_text_message(recipient, "Procesando tu imagen..."))
+            logging.info(f"[ENQUEUE] WA image recipient={recipient} context_id={context_id} file_path={file_path}")
             submit_task_by_name(
                 "openIAService.services.tasks:process_whatsapp_image",
                 str(recipient), str(context_id), str(caption or ""), str(file_path or "")
@@ -88,6 +89,7 @@ def process_individual_message(message):
             file_path = download_media(audio_id, "audio/ogg")
             # Ack inmediato y procesamiento asíncrono mediante tarea importable
             send_whatsapp_message(create_text_message(recipient, "Procesando tu audio..."))
+            logging.info(f"[ENQUEUE] WA audio recipient={recipient} context_id={context_id} file_path={file_path}")
             submit_task_by_name(
                 "openIAService.services.tasks:process_whatsapp_audio",
                 str(recipient), str(context_id), str(file_path or "")
@@ -102,6 +104,7 @@ def process_individual_message(message):
                 file_path = download_media(document_id, f"application/{file_extension}")
                 # Ack inmediato y procesamiento asíncrono mediante tarea importable
                 send_whatsapp_message(create_text_message(recipient, "Procesando tu documento..."))
+                logging.info(f"[ENQUEUE] WA document recipient={recipient} context_id={context_id} file_path={file_path} ext={file_extension}")
                 submit_task_by_name(
                     "openIAService.services.tasks:process_whatsapp_document",
                     str(recipient), str(context_id), str(file_path or ""), str(file_extension)

@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Set workdir where code will be mounted
-WORKDIR /app
+# Set workdir where code will be mounted (align with app)
+WORKDIR /app/Chatbot_IA
 
 # Install Python deps once at build time
 # Copy only requirements to leverage Docker layer cache
