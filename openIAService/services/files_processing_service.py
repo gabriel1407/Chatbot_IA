@@ -4,7 +4,10 @@ import docx
 import pytesseract
 import speech_recognition as sr
 from pydub import AudioSegment
-import logging
+from core.logging.logger import get_app_logger
+
+# Usar el nuevo sistema de logging centralizado
+logger = get_app_logger()
 
 UPLOAD_FOLDER = os.path.join('local', 'uploads')
 if not os.path.exists(UPLOAD_FOLDER):
@@ -17,9 +20,9 @@ def process_pdf(file_path):
         with fitz.open(file_path) as pdf:
             for page in pdf:
                 text += page.get_text()
-        logging.info(f"PDF procesado correctamente: {file_path}")
+        logger.info(f"PDF procesado correctamente: {file_path}")
     except Exception as e:
-        logging.error(f"Error al procesar PDF: {e}")
+        logger.error(f"Error al procesar PDF: {e}")
     return text
 
 def process_docx(file_path):
@@ -27,24 +30,24 @@ def process_docx(file_path):
     try:
         doc = docx.Document(file_path)
         text = "\n".join([para.text for para in doc.paragraphs])
-        logging.info(f"DOCX procesado correctamente: {file_path}")
+        logger.info(f"DOCX procesado correctamente: {file_path}")
         return text
     except Exception as e:
-        logging.error(f"Error al procesar DOCX: {e}")
+        logger.error(f"Error al procesar DOCX: {e}")
         return "Error al procesar el documento."
 
 def process_image(file_path):
     """Extrae el texto de una imagen usando OCR."""
     try:
         if not os.path.exists(file_path):
-            logging.error(f"El archivo de imagen no existe: {file_path}")
+            logger.error(f"El archivo de imagen no existe: {file_path}")
             return "Error: el archivo de imagen no existe."
-        logging.info(f"Procesando imagen con pytesseract: {file_path}")
+        logger.info(f"Procesando imagen con pytesseract: {file_path}")
         text = pytesseract.image_to_string(file_path)
-        logging.info(f"Imagen procesada correctamente: {file_path}")
+        logger.info(f"Imagen procesada correctamente: {file_path}")
         return text if text.strip() else "No se pudo extraer texto de la imagen."
     except Exception as e:
-        logging.error(f"Error al procesar imagen: {e}", exc_info=True)
+        logger.error(f"Error al procesar imagen: {e}", exc_info=True)
         return "Error al analizar la imagen."
 
 def process_audio(file_path, language='es'):
@@ -63,7 +66,7 @@ def process_audio(file_path, language='es'):
     except sr.RequestError:
         return "Error en el servicio de reconocimiento de voz."
     except Exception as e:
-        logging.error(f"Error al procesar audio: {e}")
+        logger.error(f"Error al procesar audio: {e}")
         return "Error al procesar el audio."
 
 def process_document(file_path, file_type):

@@ -1,95 +1,253 @@
-# Chatbot_IA
+# 🤖 Chatbot IA - WhatsApp & Telegram
 
-Este repositorio implementa un modelo de chatbot inteligente que puede interactuar con usuarios a través de WhatsApp y Telegram, procesar archivos (PDF, DOCX, imágenes, audio), mantener contexto de conversación y aprovechar modelos de IA de OpenAI para generar respuestas avanzadas.
+## 🚀 Sistema Inteligente de Chatbot con IA
 
-## Características principales
-
-- **Integración con WhatsApp y Telegram:** Recibe y responde mensajes automáticamente en ambas plataformas.
-- **Procesamiento de archivos:** Extrae texto de PDFs, DOCX, imágenes (OCR) y audios (STT).
-- **Gestión de contexto:** Mantiene el historial de conversación por usuario y por tema.
-- **Respuestas inteligentes:** Utiliza modelos de OpenAI (GPT-4o) para generar respuestas contextuales y analizar imágenes.
-- **Soporte multilenguaje:** Responde en el idioma detectado del usuario (por defecto español).
-- **API REST con Flask:** Expone endpoints para recibir mensajes y subir archivos.
-
-## Estructura del repositorio
-
-- `openIAService/main.py`: Punto de entrada principal de la API Flask.
-- `openIAService/routes/`: Rutas para WhatsApp, Telegram y carga de archivos.
-- `openIAService/services/`: Lógica de negocio para mensajería, procesamiento de archivos, contexto y conexión con OpenAI.
-- `openIAService/config.py`: Configuración de variables de entorno y rutas.
-- `local/uploads/`: Carpeta donde se almacenan archivos subidos temporalmente.
-- `local/contextos.db`: Base de datos SQLite para almacenar el contexto de conversación.
-
-## Instalación
-
-1. **Clona el repositorio**
-   ```bash
-   git clone <url-del-repo>
-   cd Chatbot_IA
-   ```
-
-2. **Instala las dependencias**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configura las variables de entorno**  
-   Crea un archivo `.env` con tus claves:
-   ```
-   SECRET_KEY=tu_clave_secreta
-   TOKEN_WHATSAPP=tu_token_whatsapp
-   OPENAI_API_KEY=tu_api_key_openai
-   TELEGRAM_TOKEN=tu_token_telegram
-   ```
-
-4. **Ejecuta el servidor**
-   ```bash
-   python openIAService/main.py
-   ```
-
-## Uso
-
-- **WhatsApp:**  
-  Configura el webhook de WhatsApp Business API para apuntar a `/whatsapp`. El bot procesará mensajes de texto, imágenes, audios y documentos.
-
-- **Telegram:**  
-  Configura el webhook de tu bot de Telegram para apuntar a `/webhook/telegram`.
-
-- **Carga de archivos PDF:**  
-  Puedes subir PDFs a través del endpoint `/upload-pdf/` para extraer y procesar su contenido.
-
-## Ejemplo de flujo
-
-1. El usuario envía un mensaje o archivo por WhatsApp o Telegram.
-2. El bot procesa el mensaje, mantiene el contexto y responde usando OpenAI.
-3. Si el usuario envía un archivo, el bot extrae el texto y lo utiliza para responder preguntas sobre su contenido.
-
-## Ejemplos para probar el flujo MCP y el flujo estándar
-
-**Caso 1: Activación del flujo MCP (búsqueda web + ChatGPT)**
-
-Pregunta:
-```
-buscar: ¿Quién es el actual presidente de Francia?
-```
-*La IA debe activar el flujo MCP, buscar en la web y luego resumir la respuesta con ChatGPT.*
+Chatbot avanzado que integra **OpenAI GPT-4** para conversaciones inteligentes a través de WhatsApp y Telegram, con arquitectura limpia, principios SOLID y sistema automático de limpieza de contexto.
 
 ---
 
-**Caso 2: Flujo estándar (solo ChatGPT, sin búsqueda web)**
+## ✨ Características Principales
 
-Pregunta:
-```
-Explícame cómo funciona la fotosíntesis en las plantas.
-```
-*La IA debe responder usando solo ChatGPT y el contexto de conversación.*
+### 🤖 **Inteligencia Artificial**
+- **OpenAI GPT-4o** para conversaciones naturales
+- **GPT-4o-mini** para respuestas rápidas
+- **Análisis de imágenes** con visión por computadora
+- **Procesamiento de documentos** (PDF, Word, texto)
+- **Búsqueda web** integrada con SerpAPI
 
-## Personalización
+### 💬 **Multi-Canal**
+- **WhatsApp** - Integración completa con Meta API
+- **Telegram** - Bot nativo con todas las funciones
+- **Adaptadores unificados** para manejo consistente
 
-Puedes modificar los servicios en `openIAService/services/` para agregar nuevas funcionalidades, como integración con otras plataformas, análisis de sentimiento, respuestas multimedia, etc.
+### 🏗️ **Arquitectura Avanzada**
+- **Clean Architecture** con separación por capas
+- **Principios SOLID** aplicados completamente
+- **Repository Pattern** para persistencia
+- **Dependency Injection** para bajo acoplamiento
+- **Strategy Pattern** para algoritmos intercambiables
 
-## Contribuciones
-
-¡Las contribuciones son bienvenidas! Abre un issue o pull request para sugerir mejoras.
+### 🧹 **Gestión de Contexto**
+- **Limpieza automática** cada 24 horas
+- **Contexto persistente** para conversaciones largas
+- **Memoria vectorial** para búsqueda semántica
+- **Optimización de tokens** para mejor rendimiento
 
 ---
+
+## 🛠️ Instalación Rápida
+
+### 1. **Clonar y preparar entorno**
+```bash
+git clone <repository-url>
+cd Chatbot_IA
+python3 -m venv env
+source env/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. **Configurar variables de entorno**
+```bash
+# Copia y edita las variables necesarias
+cp .env.example .env
+nano .env
+```
+
+**Variables requeridas:**
+```bash
+OPENAI_API_KEY=tu-clave-openai
+TOKEN_WHATSAPP=tu-token-whatsapp
+PHONE_NUMBER_ID=tu-numero-whatsapp
+TELEGRAM_TOKEN=tu-token-telegram
+SERPAPI_KEY=tu-clave-serpapi
+```
+
+### 3. **Ejecutar la aplicación**
+```bash
+cd openIAService
+python main.py
+```
+
+---
+
+## 📊 Monitoreo y Logs
+
+### 🔍 **Monitor de Logs**
+```bash
+# Monitorear log principal
+./monitor_logs.sh app
+
+# Monitorear Telegram
+./monitor_logs.sh telegram
+
+# Monitorear WhatsApp  
+./monitor_logs.sh whatsapp
+
+# Ver todos los logs
+./monitor_logs.sh all
+
+# Estado de logs
+./monitor_logs.sh status
+```
+
+### 📁 **Ubicación de Logs**
+- **`openIAService/logs/app.log`** - Log principal
+- **`openIAService/logs/telegram.log`** - Eventos Telegram
+- **`openIAService/logs/whatsapp.log`** - Eventos WhatsApp
+
+---
+
+## 🌐 API Endpoints
+
+### 📱 **Webhooks**
+```bash
+POST /webhook/whatsapp    # Webhook WhatsApp (v1)
+POST /webhook/telegram    # Webhook Telegram (v1)
+POST /api/v2/webhook/whatsapp  # Webhook WhatsApp mejorado
+POST /api/v2/webhook/telegram  # Webhook Telegram mejorado
+```
+
+### 📊 **Monitoreo**
+```bash
+GET /api/v2/health               # Estado del sistema
+GET /api/context/status          # Estado de contextos
+POST /api/context/cleanup        # Limpiar contextos manualmente
+GET /api/v2/architecture/info    # Información de arquitectura
+```
+
+### 📂 **Archivos**
+```bash
+POST /upload_file                # Subir archivos
+GET /uploaded_files             # Lista de archivos
+```
+
+---
+
+## 🔧 Características Técnicas
+
+### 📦 **Stack Tecnológico**
+- **Python 3.12+**
+- **Flask** - Framework web
+- **SQLite** - Base de datos
+- **OpenAI API** - Inteligencia artificial
+- **Pydantic** - Validación de datos
+- **Beautiful Soup** - Procesamiento HTML
+
+### 🏛️ **Arquitectura**
+```
+openIAService/
+├── domain/              # Entidades de negocio
+├── application/         # Casos de uso
+├── infrastructure/      # Implementaciones técnicas
+├── core/               # Configuración y utilidades
+├── services/           # Servicios de aplicación
+└── routes/             # Endpoints API
+```
+
+### 🔄 **Patrones Implementados**
+- **Repository** - Abstracción de datos
+- **Factory** - Creación de objetos
+- **Strategy** - Algoritmos intercambiables
+- **Adapter** - Unificación de interfaces
+- **Dependency Injection** - Inversión de dependencias
+
+---
+
+## 🚀 Uso del Sistema
+
+### 💬 **Comandos de Chat**
+El chatbot responde a mensajes naturales en español e inglés:
+
+```
+Usuario: "Hola, ¿cómo estás?"
+Bot: "¡Hola! Estoy aquí para ayudarte..."
+
+Usuario: "Analiza esta imagen" + [imagen]
+Bot: [Análisis detallado de la imagen]
+
+Usuario: "Busca información sobre Python"
+Bot: [Resultados de búsqueda web + respuesta]
+```
+
+### 📄 **Procesamiento de Documentos**
+- Sube PDFs, documentos Word o archivos de texto
+- El sistema extrae y analiza el contenido
+- Responde preguntas sobre el documento
+
+### 🔍 **Búsqueda Web**
+- Búsquedas automáticas cuando se necesita información actualizada
+- Integración transparente con SerpAPI
+- Resultados procesados y resumidos por IA
+
+---
+
+## 🛡️ Seguridad y Rendimiento
+
+### 🔒 **Seguridad**
+- Validación de tokens para todos los webhooks
+- Sanitización de inputs de usuario
+- Logs de auditoría completos
+- Variables de entorno para credenciales
+
+### ⚡ **Rendimiento**
+- Limpieza automática de contexto (24h)
+- Optimización de tokens para reducir costos
+- Cache de respuestas frecuentes
+- Logging asíncrono para no bloquear
+
+---
+
+## 📈 Métricas y Monitoreo
+
+### 📊 **Métricas Disponibles**
+- Número de conversaciones activas
+- Uso de tokens OpenAI
+- Tiempo de respuesta promedio
+- Errores y excepciones
+
+### 🔍 **Comandos de Diagnóstico**
+```bash
+# Ver estadísticas de contexto
+curl http://localhost:8082/api/context/status
+
+# Forzar limpieza de contextos
+curl -X POST http://localhost:8082/api/context/cleanup
+
+# Estado general del sistema
+curl http://localhost:8082/api/v2/health
+```
+
+---
+
+## 🤝 Contribución
+
+### 📝 **Para Desarrolladores**
+1. Fork del repositorio
+2. Crear rama de feature
+3. Seguir principios SOLID
+4. Mantener cobertura de tests
+5. Documentar cambios
+
+### 🐛 **Reportar Issues**
+- Incluir logs relevantes
+- Describir pasos para reproducir
+- Especificar versión de Python
+- Adjuntar configuración (sin credenciales)
+
+---
+
+## 📄 Licencia
+
+Este proyecto está bajo la licencia MIT. Ver [LICENSE](LICENSE) para más detalles.
+
+---
+
+## 📞 Soporte
+
+- **📧 Email**: carvajalgabriel1407@gmail.com
+- **🐙 GitHub**: [gabriel1407](https://github.com/gabriel1407)
+- **📁 Proyecto**: [Chatbot_IA](https://github.com/gabriel1407/Chatbot_IA)
+
+---
+
+*Última actualización: Noviembre 2025*

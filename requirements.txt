@@ -19,7 +19,7 @@ jiter==0.9.1
 lxml==5.4.0
 MarkupSafe==2.1.5
 openai==1.82.0
-packaging==25.0
+packaging>=23.2,<25.0
 pillow==10.4.0
 pydantic==2.10.6
 pydantic-core==2.27.2
@@ -39,3 +39,9 @@ urllib3==2.2.3
 websocket-client==1.8.0
 werkzeug==3.0.6
 zipp==3.20.2
+
+# Nuevas dependencias para arquitectura refactorizada
+pydantic-settings==2.1.0
+chromadb==0.4.22
+tiktoken==0.5.2
+langchain-text-splitters==0.2.0
