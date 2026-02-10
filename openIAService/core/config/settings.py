@@ -2,9 +2,44 @@
 Configuración centralizada de la aplicación.
 Usa Pydantic para validación de configuración.
 """
+import os
+from pathlib import Path
 from typing import Optional
-from pydantic_settings import BaseSettings
-from pydantic import Field, validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, validator, AliasChoices
+
+# Load .env file explicitly before creating Settings
+from dotenv import load_dotenv
+
+# Try multiple locations for .env file
+env_files = [
+    Path(__file__).parent.parent.parent.parent / ".env",  # /app/.env
+    Path("/app/.env"),  # /app/.env (absolute)
+    Path.cwd() / ".env",  # Current working directory
+]
+
+for env_file in env_files:
+    if env_file.exists():
+        print(f"[Settings] Loading .env from {env_file}")
+        load_dotenv(env_file)
+        break
+
+# Debug: print presence of critical env vars
+try:
+    print("[Settings][Debug] ENV keys snapshot:")
+    for k in [
+        "ENVIRONMENT",
+        "SECRET_KEY",
+        "OPENAI_API_KEY",
+        "TELEGRAM_TOKEN",
+        "TOKEN_WHATSAPP",
+        "CHROMA_HOST",
+        "CHROMA_PORT",
+    ]:
+        v = os.environ.get(k)
+        print(f"  - {k}={'<set>' if v else '<missing>'}")
+except Exception as e:
+    print(f"[Settings][Debug] Failed to print env snapshot: {e}")
 
 
 class Settings(BaseSettings):
@@ -36,9 +71,16 @@ class Settings(BaseSettings):
     telegram_api_url: Optional[str] = None
     
     # WhatsApp
-    whatsapp_token: str = Field(..., env="TOKEN_WHATSAPP")
-    whatsapp_api_url: str = "https://graph.facebook.com/v18.0/245533201976802/messages"
-    whatsapp_verify_token: str = "E23431A21A991BE82FF3D79D5F1F8"
+    whatsapp_token: str = Field(
+        ..., 
+        env="TOKEN_WHATSAPP", 
+        validation_alias=AliasChoices("TOKEN_WHATSAPP", "WHATSAPP_TOKEN")
+    )
+    phone_number_id: str = Field(..., env="PHONE_NUMBER_ID")
+    whatsapp_api_url: Optional[str] = None
+    whatsapp_verify_token: str = Field(
+        default="E23431A21A991BE82FF3D79D5F1F8", env="WHATSAPP_VERIFY_TOKEN"
+    )
     
     # SerpAPI (búsqueda web)
     serpapi_key: Optional[str] = Field(None, env="SERPAPI_KEY")
@@ -47,6 +89,8 @@ class Settings(BaseSettings):
     upload_folder: str = "local/uploads"
     db_path: str = "local/contextos.db"
     vector_store_path: str = "local/vector_store"
+    chroma_host: str = Field(default="chroma", env="CHROMA_HOST")
+    chroma_port: int = Field(default=8000, env="CHROMA_PORT")
     
     # RAG Configuration
     rag_enabled: bool = True
@@ -69,11 +113,21 @@ class Settings(BaseSettings):
         if v is None and "telegram_token" in values:
             return f"https://api.telegram.org/bot{values['telegram_token']}"
         return v
+
+    @validator("whatsapp_api_url", always=True)
+    def set_whatsapp_api_url(cls, v, values):
+        """Genera la URL de WhatsApp API automáticamente usando phone_number_id."""
+        if v is None and "phone_number_id" in values:
+            return f"https://graph.facebook.com/v18.0/{values['phone_number_id']}/messages"
+        return v
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    # Pydantic v2 Settings configuration
+    model_config = SettingsConfigDict(
+        env_file=("/app/.env", "../../.env", ".env"),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 # Instancia global de configuración

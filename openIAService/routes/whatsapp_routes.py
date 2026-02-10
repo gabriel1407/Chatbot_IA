@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 import logging
 import json
 from services.whatsapp_service import send_whatsapp_message, create_text_message, process_individual_message
+from core.config.settings import settings
 
 whatsapp_bp = Blueprint('whatsapp', __name__)
 
@@ -9,7 +10,7 @@ whatsapp_bp = Blueprint('whatsapp', __name__)
 def verify_token():
     """Verifica el token de WhatsApp."""
     try:
-        access_token = "E23431A21A991BE82FF3D79D5F1F8"
+        access_token = settings.whatsapp_verify_token
         token = request.args.get('hub.verify_token')
         challenge = request.args.get('hub.challenge')
 

@@ -60,17 +60,41 @@ def initialize_dependencies():
     Esta función se llamará al inicio de la aplicación.
     """
     logger.info("Inicializando dependencias...")
-    
-    # TODO: Aquí registraremos las implementaciones concretas
-    # cuando las creemos en las siguientes fases
-    
-    # Ejemplo de cómo se registrarán:
-    # from infrastructure.ai.openai_llm_adapter import OpenAILLMAdapter
-    # from infrastructure.persistence.sqlite_conversation_repository import SQLiteConversationRepository
-    # 
-    # DependencyContainer.register("LLMService", OpenAILLMAdapter(settings))
-    # DependencyContainer.register("ConversationRepository", SQLiteConversationRepository(settings))
-    
+
+    # Repositorio de conversaciones (SQLite)
+    from infrastructure.persistence.sqlite_conversation_repository import SQLiteConversationRepository
+    DependencyContainer.register("ConversationRepository", SQLiteConversationRepository(settings.db_path))
+
+    # RAG-related deps solo si está habilitado
+    if getattr(settings, "rag_enabled", True):
+        try:
+            # Servicio de embeddings (OpenAI)
+            from infrastructure.embeddings.openai_embedding_service import OpenAIEmbeddingService
+            DependencyContainer.register("EmbeddingService", OpenAIEmbeddingService())
+
+            # Vector Store (ChromaDB via HTTP)
+            from infrastructure.vector_store.chroma_vector_store_repository import ChromaVectorStoreRepository
+            chroma_host = getattr(settings, "chroma_host", None) or "chroma"
+            chroma_port = getattr(settings, "chroma_port", None) or 8000
+            DependencyContainer.register(
+                "VectorStoreRepository", ChromaVectorStoreRepository(host=chroma_host, port=chroma_port)
+            )
+
+            # RAG Service
+            from application.services.rag_service import RAGService
+            rag_service = RAGService(
+                embedding_service=DependencyContainer.get("EmbeddingService"),
+                vector_store=DependencyContainer.get("VectorStoreRepository"),
+            )
+            DependencyContainer.register("RAGService", rag_service)
+        except Exception as e:
+            # Si Chroma u otra dependencia falla, deshabilitamos RAG de forma segura
+            logger.warning(f"RAG deshabilitado por error de inicialización: {e}")
+            try:
+                setattr(settings, "rag_enabled", False)
+            except Exception:
+                pass
+
     logger.info("Dependencias inicializadas correctamente")
 
 

@@ -2,7 +2,7 @@
 Interface VectorStoreRepository - Define el contrato para búsqueda vectorial (RAG).
 """
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from domain.entities.document import DocumentChunk
 from domain.value_objects.search_query import SearchQuery
 

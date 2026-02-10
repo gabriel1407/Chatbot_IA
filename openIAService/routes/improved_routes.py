@@ -12,6 +12,7 @@ from services.channel_adapters import (
     get_unified_channel_service
 )
 from core.logging.logger import get_app_logger
+from core.config.settings import settings
 
 # Blueprint para las nuevas rutas mejoradas
 improved_bp = Blueprint('improved', __name__, url_prefix='/api/v2')
@@ -32,7 +33,7 @@ def whatsapp_webhook_v2():
     if request.method == 'GET':
         # Verificación del token de WhatsApp
         try:
-            access_token = "E23431A21A991BE82FF3D79D5F1F8"
+            access_token = settings.whatsapp_verify_token
             token = request.args.get('hub.verify_token')
             challenge = request.args.get('hub.challenge')
             

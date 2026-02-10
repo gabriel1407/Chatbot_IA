@@ -1,6 +1,6 @@
 import requests
 import json
-from decouple import config
+from core.config.settings import settings
 from services.openia_service import handle_text_message
 from services.files_processing_service import process_image, process_audio, process_document
 from services.context_service_adapter import load_context, save_context, detect_new_topic, get_active_context_id
@@ -9,8 +9,8 @@ from core.logging.logger import get_whatsapp_logger
 # Usar el nuevo sistema de logging centralizado
 whatsapp_logger = get_whatsapp_logger()
 
-TOKEN_WHATSAPP = config('TOKEN_WHATSAPP')
-WHATSAPP_API_URL = "https://graph.facebook.com/v18.0/245533201976802/messages"
+TOKEN_WHATSAPP = settings.whatsapp_token
+WHATSAPP_API_URL = settings.whatsapp_api_url
 
 def send_whatsapp_message(body):
     """

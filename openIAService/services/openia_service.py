@@ -5,6 +5,8 @@ from openai import OpenAI
 from decouple import config
 
 from services.context_service_adapter import load_context, save_context
+from core.config.settings import settings
+from core.config.dependencies import DependencyContainer
 from services.mcp_service import extract_url_from_message, link_reader_agent, mcp_pipeline
 from core.logging.logger import get_app_logger
 
@@ -49,6 +51,21 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
     """
     if initial_instructions:
         context = [initial_instructions] + context
+
+    # Inyectar contexto RAG si está habilitado
+    try:
+        if settings.rag_enabled and DependencyContainer.get("RAGService"):
+            rag = DependencyContainer.get("RAGService")
+            # El user_id lo añadimos en el primer mensaje del contexto si existe
+            user_id = None
+            for m in context:
+                if m.get("role") == "user":
+                    # openia_service maneja user_id fuera; fallback None
+                    break
+            # No tenemos user_id aquí, se aportará por el llamador en handle_text_message
+    except Exception:
+        # Si no hay RAG no bloqueamos
+        pass
 
     messages = context + [{"role": "user", "content": prompt}]
 
@@ -136,6 +153,32 @@ def handle_text_message(message, user_id, image_path=None, context_id="default")
         save_context(user_id, context, context_id)
     else:
         prompt = message
+        # Enriquecer con RAG si está habilitado
+        rag_context_note = None
+        if settings.rag_enabled:
+            try:
+                rag = DependencyContainer.get("RAGService")
+                results = rag.retrieve(user_id=str(user_id), query_text=prompt)
+                if results:
+                    # Formatear evidencias
+                    snippets = []
+                    for chunk, score in results[: settings.rag_top_k]:
+                        snippets.append(f"- ({score:.2f}) {chunk.content}")
+                    rag_text = "\n".join(snippets)
+                    rag_context_note = {
+                        "role": "system",
+                        "content": (
+                            "Usa estrictamente la siguiente información como contexto adicional (RAG). "
+                            "Si la información no es suficiente, indícalo y evita inventar.\n\n"
+                            f"Contexto:\n{rag_text}"
+                        ),
+                    }
+            except Exception as e:
+                logger.warning(f"[RAG] No se pudo recuperar contexto: {e}")
+
+        if rag_context_note:
+            context = [rag_context_note] + context
+
         logger.info(f"[OPENAI][Entrada] Flujo estándar para usuario {user_id} con mensaje: {prompt}")
         response = generate_openai_response(prompt, context, language, initial_instructions)
         logger.info(f"[OPENAI][Salida] Respuesta estándar generada para usuario {user_id}: {response}")

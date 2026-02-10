@@ -1,13 +1,15 @@
-from flask import Flask
+from flask import Flask, request
 from routes.whatsapp_routes import whatsapp_bp
 from routes.telegram_routes import telegram_bp
 from routes.file_routes import file_bp
 from routes.context_routes import context_bp
 from routes.improved_routes import improved_bp
+from routes.rag_routes import rag_bp
 from config import Config
 from services.context_cleanup_service import create_context_cleanup_service
 import logging
 import atexit
+from core.config.dependencies import initialize_dependencies
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -18,6 +20,10 @@ app.register_blueprint(telegram_bp)
 app.register_blueprint(file_bp)
 app.register_blueprint(context_bp)
 app.register_blueprint(improved_bp)  # Nueva arquitectura
+app.register_blueprint(rag_bp)  # Endpoints RAG
+
+# Inicializar dependencias al importar el módulo (útil para WSGI/Gunicorn)
+initialize_dependencies()
 
 # Inicializar servicio de limpieza automática de contextos
 cleanup_service = create_context_cleanup_service()
@@ -41,6 +47,14 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+# Loggear cada request entrante (método, ruta, IP) para depurar webhooks
+@app.before_request
+def log_request_info():
+    try:
+        logging.info(f"Incoming {request.method} {request.path} from {request.remote_addr}")
+    except Exception:
+        pass
 
 if __name__ == '__main__':
     # Iniciar limpieza automática de contextos

@@ -1,0 +1,66 @@
+services:
+  chroma:
+    image: ghcr.io/chroma-core/chroma:0.4.22
+    container_name: chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ALLOW_RESET=FALSE
+    command: ["/bin/sh", "-c", "pip install --no-cache-dir 'numpy<2.0.0' 'chroma-hnswlib==0.7.3' && exec uvicorn chromadb.app:app --host 0.0.0.0 --port 8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client,sys; c=http.client.HTTPConnection('localhost',8000,timeout=2); c.request('GET','/api/v1/heartbeat'); r=c.getresponse(); sys.exit(0 if r.status==200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    volumes:
+      - chroma_data:/chroma/.chroma/index
+    ports:
+      - "127.0.0.1:9000:8000"
+    # Optional healthcheck; commented to avoid gating app startup if Chroma API path changes
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/heartbeat"]
+    #   interval: 5s
+    #   timeout: 3s
+    #   retries: 20
+
+  app:
+    build: .
+    container_name: chatbot_ia_app
+    env_file:
+      - ./.env
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TOKEN_WHATSAPP=${TOKEN_WHATSAPP}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - PHONE_NUMBER_ID=${PHONE_NUMBER_ID}
+      - SECRET_KEY=${SECRET_KEY}
+      - SERPAPI_KEY=${SERPAPI_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASS=${EMAIL_PASS}
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
+      - ENVIRONMENT=production
+      - WEB_CONCURRENCY=2
+      - GTHREADS=4
+      - GUNICORN_TIMEOUT=300
+      - GUNICORN_KEEPALIVE=5
+    depends_on:
+      chroma:
+        condition: service_healthy
+    volumes:
+      - ./openIAService/logs:/app/openIAService/logs
+      - ./openIAService/local:/app/openIAService/local
+    ports:
+      - "127.0.0.1:9001:8082"
+    # Limitar recursos (opcional, ajusta a tus necesidades)
+    # Estos campos son soportados por Docker Compose moderno
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1g
+
+volumes:
+  chroma_data:
+    driver: local

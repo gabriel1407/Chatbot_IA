@@ -68,6 +68,19 @@ cd openIAService
 python main.py
 ```
 
+### 4. (Opcional) Ejecutar con Docker Compose
+```bash
+cp .env.example .env
+docker compose up --build
+```
+Servicios:
+- App Flask: http://localhost:9001
+- ChromaDB: http://localhost:9000 (vector store para RAG)
+
+Nota sobre dependencias en Docker
+- La imagen Docker usa un set mínimo en `requirements-base.txt` para garantizar builds estables (Flask, OpenAI, OCR/documentos, Telegram, ChromaDB, RAG).
+- El archivo `requirements.txt` contiene librerías opcionales adicionales (MCP, FastAPI stack, proveedores extra) que pueden tener conflictos entre sí. Si necesitas incluirlas en la imagen, avísame y preparo perfiles/targets de build específicos.
+
 ---
 
 ## 📊 Monitoreo y Logs
@@ -121,6 +134,46 @@ POST /upload_file                # Subir archivos
 GET /uploaded_files             # Lista de archivos
 ```
 
+### 🔎 RAG (Retrieval Augmented Generation)
+```bash
+POST /api/rag/ingest            # Ingestar texto al vector store
+GET  /api/rag/search            # Buscar contexto semántico
+DELETE /api/rag/documents/:id   # Eliminar documento indexado
+```
+Ejemplos:
+```bash
+curl -X POST http://localhost:9001/api/rag/ingest \
+	-H 'Content-Type: application/json' \
+	-d '{"user_id":"u1","document_id":"doc-1","title":"Manual","text":"contenido a indexar"}'
+
+curl 'http://localhost:9001/api/rag/search?user_id=u1&query=consulta'
+
+Integración con Nginx del servidor (externo)
+Si tienes un Nginx frontal (por ejemplo optimus.pegasoconsulting.net) y quieres publicar el servicio bajo /service_ia/, usa algo como:
+
+location /service_ia/ {
+		rewrite ^/service_ia/(.*)$ /$1 break;
+		proxy_set_header Host $host;
+		proxy_set_header X-Real-IP $remote_addr;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+		proxy_http_version 1.1;
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Connection "upgrade";
+		proxy_read_timeout 300s;
+		proxy_pass http://127.0.0.1:9001/;
+}
+
+Rendimiento y límites de recursos
+- El contenedor ejecuta Gunicorn con worker_class gthread (óptimo para E/S: llamadas OpenAI, I/O).
+- Ajusta concurrencia vía variables de entorno en docker-compose:
+	- WEB_CONCURRENCY: número de workers (por defecto ~CPU/2 o 2)
+	- GTHREADS: threads por worker (por defecto 4)
+	- GUNICORN_TIMEOUT: timeout en segundos (por defecto 300)
+	- GUNICORN_KEEPALIVE: keepalive en segundos (por defecto 5)
+- Límites de recursos (opcionales) en docker-compose bajo deploy.resources.limits (cpus/memory).
+```
+
 ---
 
 ## 🔧 Características Técnicas
@@ -128,7 +181,8 @@ GET /uploaded_files             # Lista de archivos
 ### 📦 **Stack Tecnológico**
 - **Python 3.12+**
 - **Flask** - Framework web
-- **SQLite** - Base de datos
+- **SQLite** - Base de datos (contexto conversacional)
+- **ChromaDB** - Vector DB (RAG)
 - **OpenAI API** - Inteligencia artificial
 - **Pydantic** - Validación de datos
 - **Beautiful Soup** - Procesamiento HTML
@@ -139,6 +193,8 @@ openIAService/
 ├── domain/              # Entidades de negocio
 ├── application/         # Casos de uso
 ├── infrastructure/      # Implementaciones técnicas
+│   ├── embeddings/      # OpenAI embeddings
+│   └── vector_store/    # ChromaDB repository
 ├── core/               # Configuración y utilidades
 ├── services/           # Servicios de aplicación
 └── routes/             # Endpoints API

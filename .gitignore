@@ -5,3 +5,5 @@ openIAService/app.log
 openIAService/settings.ini
 *.log
 .env
+openIAService/.env
+openIAService/.env.*
