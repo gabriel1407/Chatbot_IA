@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     chroma_port: int = Field(default=8000, env="CHROMA_PORT")
     
     # RAG Configuration
-    rag_enabled: bool = Field(default=True, env="RAG_ENABLED")
+    rag_enabled: bool = Field(default=False, env="RAG_ENABLED")
     rag_chunk_size: int = Field(default=500, env="RAG_CHUNK_SIZE")
     rag_chunk_overlap: int = Field(default=50, env="RAG_CHUNK_OVERLAP")
     rag_top_k: int = Field(default=5, env="RAG_TOP_K")

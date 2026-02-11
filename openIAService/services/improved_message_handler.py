@@ -317,14 +317,19 @@ class ImprovedMessageHandler:
                 auto_detect_topic=True
             )
             
-            # 2.5. Buscar en RAG (texto y audio transcrito) si está habilitado
-            rag_context = None
+            # 2.5. Generar respuesta en función de la configuración RAG
             from core.config.settings import settings
-            if settings.rag_enabled and message_type in (MessageType.TEXT, MessageType.AUDIO):
-                rag_context = self._search_rag_context(user_id, processed_msg.processed_content)
-            
-            # 3. Generar respuesta con IA (con contexto RAG si existe)
-            ai_response = self._generate_ai_response(conversation, processed_msg, rag_context)
+            # Si RAG está deshabilitado, usar el pipeline legado (openia_service)
+            if not settings.rag_enabled:
+                ai_response = self._generate_legacy_openia_response(user_id, processed_msg)
+            else:
+                # Buscar en RAG (texto y audio transcrito)
+                rag_context = None
+                if message_type in (MessageType.TEXT, MessageType.AUDIO):
+                    rag_context = self._search_rag_context(user_id, processed_msg.processed_content)
+
+                # 3. Generar respuesta con IA (con contexto RAG si existe)
+                ai_response = self._generate_ai_response(conversation, processed_msg, rag_context)
             
             # 4. Agregar respuesta del asistente al contexto
             updated_conversation = self.add_message_use_case.execute(
@@ -445,6 +450,21 @@ class ImprovedMessageHandler:
         except Exception as e:
             self.logger.error(f"Error en generación LLM plana: {e}")
             return self._generate_default_response(processed_msg)
+
+    def _generate_legacy_openia_response(self, user_id: str, processed_msg: ProcessedMessage) -> str:
+        """Usa el pipeline legado de openia_service cuando RAG está deshabilitado."""
+        try:
+            from services.openia_service import handle_text_message
+            # Para imágenes, pasar image_path para que use el flujo de visión
+            if processed_msg.message_type == MessageType.IMAGE:
+                image_path = processed_msg.metadata.get("file_path") if processed_msg.metadata else None
+                return handle_text_message(processed_msg.original_content or "Describe la imagen", user_id, image_path=image_path)
+            # Para audio ya tenemos el texto transcrito en processed_content
+            return handle_text_message(processed_msg.processed_content, user_id)
+        except Exception as e:
+            self.logger.error(f"Error en pipeline legado openia_service: {e}")
+            # Fallback a LLM plano
+            return self._generate_plain_ai_response(processed_msg)
     
     def _generate_rag_response(self, processed_msg: ProcessedMessage, rag_context: List[dict]) -> str:
         """Genera respuesta usando OpenAI con contexto RAG."""
