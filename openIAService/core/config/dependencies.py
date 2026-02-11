@@ -70,14 +70,15 @@ def initialize_dependencies():
         try:
             # Servicio de embeddings (OpenAI)
             from infrastructure.embeddings.openai_embedding_service import OpenAIEmbeddingService
-            DependencyContainer.register("EmbeddingService", OpenAIEmbeddingService())
+            embedding_service = OpenAIEmbeddingService()
+            DependencyContainer.register("EmbeddingService", embedding_service)
 
             # Vector Store (ChromaDB via HTTP)
             from infrastructure.vector_store.chroma_vector_store_repository import ChromaVectorStoreRepository
             chroma_host = getattr(settings, "chroma_host", None) or "chroma"
             chroma_port = getattr(settings, "chroma_port", None) or 8000
             DependencyContainer.register(
-                "VectorStoreRepository", ChromaVectorStoreRepository(host=chroma_host, port=chroma_port)
+                "VectorStoreRepository", ChromaVectorStoreRepository(host=chroma_host, port=chroma_port, embedding_service=embedding_service)
             )
 
             # RAG Service

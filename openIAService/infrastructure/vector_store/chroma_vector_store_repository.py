@@ -13,6 +13,7 @@ from core.exceptions.custom_exceptions import VectorStoreException
 from domain.entities.document import DocumentChunk
 from domain.value_objects.search_query import SearchQuery
 from domain.repositories.vector_store_repository import VectorStoreRepository
+from application.services.embedding_service import EmbeddingService
 
 
 class ChromaVectorStoreRepository(VectorStoreRepository):
@@ -21,11 +22,13 @@ class ChromaVectorStoreRepository(VectorStoreRepository):
         host: str | None = None,
         port: int | None = None,
         collection_name: str = "chatbot_ia_chunks",
+        embedding_service: Optional[EmbeddingService] = None,
     ):
         self._logger = get_infrastructure_logger()
         self._host = host or "chroma"
         self._port = port or 8000
         self._collection_name = collection_name
+        self._embedding_service = embedding_service
 
         try:
             self._client = chromadb.HttpClient(
@@ -77,12 +80,29 @@ class ChromaVectorStoreRepository(VectorStoreRepository):
 
     def search(self, query: SearchQuery) -> List[Tuple[DocumentChunk, float]]:
         try:
-            res = self._collection.query(
-                query_texts=[query.get_normalized_query()],
-                n_results=query.top_k,
-                where=query.filters or None,
-                include=["documents", "metadatas", "distances"],
-            )
+            # Generar embedding de la query usando el mismo servicio de embeddings
+            query_embedding = None
+            if self._embedding_service:
+                query_embedding = self._embedding_service.generate_embedding(
+                    query.get_normalized_query()
+                )
+            
+            # Si tenemos embedding, usar query_embeddings en lugar de query_texts
+            if query_embedding:
+                res = self._collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=query.top_k,
+                    where=query.filters or None,
+                    include=["documents", "metadatas", "distances"],
+                )
+            else:
+                # Fallback: usar query_texts (pero esto causará mismatch si usó embeddings diferentes)
+                res = self._collection.query(
+                    query_texts=[query.get_normalized_query()],
+                    n_results=query.top_k,
+                    where=query.filters or None,
+                    include=["documents", "metadatas", "distances"],
+                )
 
             results: List[Tuple[DocumentChunk, float]] = []
             if not res or not res.get("documents"):

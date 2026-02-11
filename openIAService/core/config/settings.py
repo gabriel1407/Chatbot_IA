@@ -93,11 +93,14 @@ class Settings(BaseSettings):
     chroma_port: int = Field(default=8000, env="CHROMA_PORT")
     
     # RAG Configuration
-    rag_enabled: bool = True
-    rag_chunk_size: int = 500
-    rag_chunk_overlap: int = 50
-    rag_top_k: int = 5
-    rag_min_similarity: float = 0.7
+    rag_enabled: bool = Field(default=True, env="RAG_ENABLED")
+    rag_chunk_size: int = Field(default=500, env="RAG_CHUNK_SIZE")
+    rag_chunk_overlap: int = Field(default=50, env="RAG_CHUNK_OVERLAP")
+    rag_top_k: int = Field(default=5, env="RAG_TOP_K")
+    rag_min_similarity: float = Field(default=0.7, env="RAG_MIN_SIMILARITY")
+    # Valores por defecto para búsquedas globales (chat/webhook)
+    rag_global_min_similarity: float = Field(default=0.3, env="RAG_GLOBAL_MIN_SIMILARITY")
+    rag_chat_top_k: int = Field(default=5, env="RAG_CHAT_TOP_K")
     
     # Context Window
     max_context_tokens: int = 4000

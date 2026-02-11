@@ -63,7 +63,7 @@ class RAGService:
                     content=chunk_text,
                     chunk_index=idx,
                     document_id=doc.id or document_id,
-                    metadata={"user_id": user_id, "title": title or metadata.get("title")},
+                    metadata={"user_id": user_id, "title": title or ""},
                 )
             )
 
@@ -80,11 +80,26 @@ class RAGService:
         return self._vs.delete_by_document_id(document_id)
 
     # Recuperación
-    def retrieve(self, user_id: str, query_text: str, top_k: Optional[int] = None) -> List[Tuple[DocumentChunk, float]]:
+    def retrieve(self, query_text: str, top_k: Optional[int] = None, user_id: Optional[str] = None, min_similarity: Optional[float] = None) -> List[Tuple[DocumentChunk, float]]:
+        """
+        Busca documentos en el vector store.
+        
+        Args:
+            query_text: Texto a buscar
+            top_k: Número de resultados (opcional)
+            user_id: Filtrar por usuario (opcional, por defecto busca globalmente)
+            
+        Returns:
+            Lista de chunks encontrados con similitud
+        """
+        filters = {}
+        if user_id:
+            filters = {"user_id": user_id}
+        
         sq = SearchQuery(
             query_text=query_text,
             top_k=top_k or settings.rag_top_k,
-            filters={"user_id": user_id},
-            min_similarity=settings.rag_min_similarity,
+            filters=filters,
+            min_similarity=min_similarity if min_similarity is not None else settings.rag_min_similarity,
         )
         return self._vs.search(sq)

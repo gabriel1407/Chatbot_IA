@@ -40,7 +40,7 @@ services:
       - EMAIL_PASS=${EMAIL_PASS}
       - CHROMA_HOST=chroma
       - CHROMA_PORT=8000
-      - ENVIRONMENT=production
+      - ENVIRONMENT=development
       - WEB_CONCURRENCY=2
       - GTHREADS=4
       - GUNICORN_TIMEOUT=300
@@ -48,7 +48,9 @@ services:
     depends_on:
       chroma:
         condition: service_healthy
+    command: gunicorn --reload -c gunicorn.conf.py main:app
     volumes:
+      - ./openIAService:/app/openIAService
       - ./openIAService/logs:/app/openIAService/logs
       - ./openIAService/local:/app/openIAService/local
     ports:

@@ -10,9 +10,13 @@ from pydub import AudioSegment
 import requests
 import json
 import logging
-from gtts import gTTS
 from PIL import Image, ImageDraw, ImageFont
-from langdetect import detect
+# Import flexible de langdetect: si no está disponible, asumir 'es'
+try:
+    from langdetect import detect as detect_lang
+except Exception:
+    def detect_lang(_: str) -> str:
+        return 'es'
 from decouple import config
 
 app = Flask(__name__)
@@ -173,9 +177,18 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
 
 def generate_media(content, media_type):
     if media_type == "audio":
-        tts = gTTS(content, lang='es')
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], "response.mp3")
-        tts.save(file_path)
+        # Import perezoso para evitar dependencia dura cuando no se usa TTS
+        try:
+            from gtts import gTTS
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], "response.mp3")
+            tts = gTTS(content, lang='es')
+            tts.save(file_path)
+        except Exception as e:
+            logging.warning(f"TTS no disponible o falló (gTTS): {e}")
+            # Fallback: devolver un archivo de texto con el contenido
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], "response.txt")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
     elif media_type == "image":
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], "response.png")
         font = ImageFont.load_default()
@@ -344,7 +357,7 @@ def process_individual_message(message):
         number = message["from"]
         logging.info(f"Mensaje recibido: {body}")
 
-        language = detect(body)
+        language = detect_lang(body)
         
         if number not in conversational_contexts:
             conversational_contexts[number] = []

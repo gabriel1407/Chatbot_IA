@@ -5,11 +5,13 @@ from routes.file_routes import file_bp
 from routes.context_routes import context_bp
 from routes.improved_routes import improved_bp
 from routes.rag_routes import rag_bp
+from routes.chat_routes import chat_bp
 from config import Config
 from services.context_cleanup_service import create_context_cleanup_service
 import logging
 import atexit
 from core.config.dependencies import initialize_dependencies
+from core.config.settings import settings
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -21,9 +23,15 @@ app.register_blueprint(file_bp)
 app.register_blueprint(context_bp)
 app.register_blueprint(improved_bp)  # Nueva arquitectura
 app.register_blueprint(rag_bp)  # Endpoints RAG
+app.register_blueprint(chat_bp)  # Chat con RAG integrado
 
 # Inicializar dependencias al importar el módulo (útil para WSGI/Gunicorn)
 initialize_dependencies()
+
+# Log de configuración RAG a inicio
+logging.info(
+    f"[Settings] RAG_ENABLED={settings.rag_enabled}, RAG_CHAT_TOP_K={getattr(settings, 'rag_chat_top_k', None)}, RAG_GLOBAL_MIN_SIMILARITY={getattr(settings, 'rag_global_min_similarity', None)}"
+)
 
 # Inicializar servicio de limpieza automática de contextos
 cleanup_service = create_context_cleanup_service()
