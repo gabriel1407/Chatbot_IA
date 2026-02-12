@@ -311,36 +311,54 @@ class ImprovedMessageHandler:
         Returns:
             Respuesta generada
         """
+        traced = self.handle_user_message_with_trace(
+            user_id=user_id,
+            content=content,
+            message_type=message_type,
+            metadata=metadata,
+            context_id=context_id,
+            include_thinking=False,
+        )
+        return traced.get("content", "Lo siento, ocurrió un error procesando tu mensaje. Por favor intenta de nuevo.")
+
+    def handle_user_message_with_trace(
+        self,
+        user_id: str,
+        content: str,
+        message_type: MessageType = MessageType.TEXT,
+        metadata: Optional[Dict[str, Any]] = None,
+        context_id: Optional[str] = None,
+        include_thinking: bool = False,
+    ) -> Dict[str, Any]:
+        """Maneja mensaje de usuario y retorna contenido + thinking (opcional)."""
         try:
             self.logger.info(f"Procesando mensaje de usuario {user_id}: {message_type.value}")
-            
-            # 1. Procesar mensaje según su tipo
+
             processed_msg = self.message_processor.process_message(content, message_type, metadata)
-            
             if not processed_msg.success:
                 self.logger.error(f"Error procesando mensaje: {processed_msg.error_message}")
-                return f"Error procesando tu mensaje: {processed_msg.error_message}"
-            
-            # 2. Agregar mensaje del usuario al contexto
+                return {
+                    "content": f"Error procesando tu mensaje: {processed_msg.error_message}",
+                    "thinking": "",
+                }
+
             conversation = self.add_message_use_case.execute(
                 user_id=user_id,
                 message_content=processed_msg.processed_content,
                 message_role=MessageRole.USER,
                 context_id=context_id,
-                auto_detect_topic=True
+                auto_detect_topic=True,
             )
-            
-            # 2.5. Generar respuesta en función de la configuración RAG
+
             from core.config.settings import settings
-            # Si RAG está deshabilitado, usar el pipeline legado (openia_service)
             if not settings.rag_enabled:
-                ai_response = self.response_generation_use_case.generate_legacy_response(
-                    user_id,
-                    processed_msg,
-                    context_id=conversation.context_id
+                traced = self.response_generation_use_case.generate_legacy_response_with_trace(
+                    user_id=user_id,
+                    processed_msg=processed_msg,
+                    context_id=conversation.context_id,
+                    include_thinking=include_thinking,
                 )
             else:
-                # Buscar en RAG (texto y audio transcrito)
                 rag_context = None
                 if message_type in (MessageType.TEXT, MessageType.AUDIO):
                     rag_context = self.response_generation_use_case.search_rag_context(
@@ -348,30 +366,36 @@ class ImprovedMessageHandler:
                         processed_msg.processed_content,
                     )
 
-                # 3. Generar respuesta con IA (con contexto RAG si existe)
-                ai_response = self.response_generation_use_case.generate_ai_response(
+                traced = self.response_generation_use_case.generate_ai_response_with_trace(
                     user_id=conversation.user_id,
                     context_id=conversation.context_id,
                     processed_msg=processed_msg,
                     rag_context=rag_context,
                     rag_enabled=True,
+                    include_thinking=include_thinking,
                 )
-            
-            # 4. Agregar respuesta del asistente al contexto
-            updated_conversation = self.add_message_use_case.execute(
+
+            final_content = traced.get("content", "")
+            self.add_message_use_case.execute(
                 user_id=user_id,
-                message_content=ai_response,
+                message_content=final_content,
                 message_role=MessageRole.ASSISTANT,
                 context_id=conversation.context_id,
-                auto_detect_topic=False
+                auto_detect_topic=False,
             )
-            
+
             self.logger.info(f"Mensaje procesado exitosamente para usuario {user_id}")
-            return ai_response
-            
+            return {
+                "content": final_content,
+                "thinking": traced.get("thinking", "") or "",
+                "context_id": conversation.context_id,
+            }
         except Exception as e:
-            self.logger.error(f"Error en handle_user_message: {e}")
-            return "Lo siento, ocurrió un error procesando tu mensaje. Por favor intenta de nuevo."
+            self.logger.error(f"Error en handle_user_message_with_trace: {e}")
+            return {
+                "content": "Lo siento, ocurrió un error procesando tu mensaje. Por favor intenta de nuevo.",
+                "thinking": "",
+            }
     
     def get_conversation_summary(self, user_id: str, context_id: Optional[str] = None) -> Dict[str, Any]:
         """Obtiene un resumen de la conversación."""

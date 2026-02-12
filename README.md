@@ -293,6 +293,8 @@ GET /api/v2/health               # Estado del sistema
 GET /api/v2/channels/status      # Estado de canales (admin)
 GET /api/v2/conversation/:id/summary # Resumen por usuario (admin)
 POST /api/v2/message/send        # Envío programático (admin)
+POST /api/v2/ai/ollama/thinking  # Prueba thinking del proveedor IA actual
+POST /api/v2/ai/ollama/stream    # Prueba streaming del proveedor IA actual
 GET /api/context/status          # Estado de contextos
 POST /api/context/cleanup        # Limpiar contextos manualmente
 GET /api/v2/architecture/info    # Información de arquitectura
@@ -328,6 +330,22 @@ Códigos frecuentes:
 - `MESSAGE_SEND_ERROR`
 - `UNSUPPORTED_FILE_EXTENSION`
 - `UNHANDLED_ERROR`
+
+### 🧠 Ollama Thinking + Streaming en canales
+
+Flags de activación:
+```bash
+OLLAMA_CHANNEL_STREAMING_ENABLED=True
+OLLAMA_CHANNEL_THINKING_ENABLED=False
+OLLAMA_STREAM_CHUNK_SIZE=120
+OLLAMA_STREAM_MAX_UPDATES=20
+```
+
+Comportamiento por canal:
+- **Telegram**: simula streaming editando un único mensaje (`Pensando...` → texto parcial → respuesta final).
+- **WhatsApp**: envía respuesta final; opcionalmente puede enviar aviso de procesamiento antes del resultado.
+
+Nota: mostrar el campo `thinking` al usuario final no suele ser recomendado en producción. Se puede mantener para debug/admin.
 
 ### 📂 **Archivos**
 ```bash

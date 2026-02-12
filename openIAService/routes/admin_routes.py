@@ -6,6 +6,8 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify
 
 from application.dto.channel_requests import SendMessageRequest
+from application.dto.ai_requests import OllamaGenerationRequest
+from core.ai.factory import get_ai_provider
 from services.channel_adapters import get_unified_channel_service
 from core.exceptions.custom_exceptions import APIException
 from core.logging.logger import get_app_logger
@@ -180,4 +182,103 @@ def get_architecture_info():
     }
 
     payload, status_code = build_success_response(data=architecture_info)
+    return jsonify(payload), status_code
+
+
+@admin_bp.route('/ai/ollama/thinking', methods=['POST'])
+def ollama_thinking_v2():
+    """Prueba thinking en proveedor IA actual (idealmente Ollama)."""
+    data = request.get_json(silent=True)
+    if not data:
+        raise APIException(
+            message="No se proporcionaron datos JSON",
+            status_code=400,
+            code="INVALID_JSON",
+        )
+
+    try:
+        request_dto = OllamaGenerationRequest.from_dict(data)
+    except ValueError as validation_error:
+        raise APIException(
+            message=str(validation_error),
+            status_code=400,
+            code="VALIDATION_ERROR",
+        )
+
+    provider = get_ai_provider()
+    result = provider.generate_text_with_thinking(
+        prompt=request_dto.prompt,
+        model=request_dto.model,
+        temperature=request_dto.temperature,
+        max_tokens=request_dto.max_tokens,
+        think=request_dto.think,
+    )
+
+    payload, status_code = build_success_response(
+        data={
+            "provider": provider.__class__.__name__,
+            "supports_thinking": provider.supports_thinking(),
+            "result": result,
+        }
+    )
+    return jsonify(payload), status_code
+
+
+@admin_bp.route('/ai/ollama/stream', methods=['POST'])
+def ollama_stream_v2():
+    """Prueba streaming en proveedor IA actual (idealmente Ollama)."""
+    data = request.get_json(silent=True)
+    if not data:
+        raise APIException(
+            message="No se proporcionaron datos JSON",
+            status_code=400,
+            code="INVALID_JSON",
+        )
+
+    try:
+        request_dto = OllamaGenerationRequest.from_dict(data)
+    except ValueError as validation_error:
+        raise APIException(
+            message=str(validation_error),
+            status_code=400,
+            code="VALIDATION_ERROR",
+        )
+
+    provider = get_ai_provider()
+    stream_chunks = provider.generate_text_stream(
+        prompt=request_dto.prompt,
+        model=request_dto.model,
+        temperature=request_dto.temperature,
+        max_tokens=request_dto.max_tokens,
+        think=request_dto.think,
+        stream=True,
+    )
+
+    max_chunks = int(data.get("max_chunks", 200) or 200)
+    if max_chunks <= 0:
+        max_chunks = 200
+
+    chunks = []
+    content_acc = ""
+    thinking_acc = ""
+
+    for index, chunk in enumerate(stream_chunks, start=1):
+        if index > max_chunks:
+            break
+        chunk_dict = chunk.to_dict()
+        chunks.append(chunk_dict)
+        content_acc += chunk_dict.get("content", "")
+        thinking_acc += chunk_dict.get("thinking", "")
+
+    payload, status_code = build_success_response(
+        data={
+            "provider": provider.__class__.__name__,
+            "supports_streaming": provider.supports_streaming(),
+            "supports_thinking": provider.supports_thinking(),
+            "chunks_count": len(chunks),
+            "content": content_acc,
+            "thinking": thinking_acc,
+            "chunks": chunks,
+        }
+    )
     return jsonify(payload), status_code

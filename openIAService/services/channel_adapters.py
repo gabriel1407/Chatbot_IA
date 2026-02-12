@@ -10,6 +10,7 @@ from enum import Enum
 from domain.entities.message import MessageType
 from services.improved_message_handler import ImprovedMessageHandler, create_message_handler
 from core.logging.logger import get_whatsapp_logger, get_telegram_logger
+from core.config.settings import settings
 
 
 class ChannelType(Enum):
@@ -455,6 +456,10 @@ class UnifiedChannelService:
             # Parsear mensaje entrante
             incoming_message = adapter.parse_incoming_message(raw_data)
             if not incoming_message:
+                if self._is_ignorable_event(channel=channel, raw_data=raw_data):
+                    self.logger.info(f"Evento de {channel.value} ignorado (no es mensaje de usuario)")
+                    return True
+
                 self.logger.warning(f"No se pudo parsear mensaje de {channel.value}")
                 return False
             
@@ -463,23 +468,37 @@ class UnifiedChannelService:
                 file_path = self._download_media_if_needed(adapter, incoming_message)
                 if file_path:
                     incoming_message.metadata["file_path"] = file_path
-            
-            # Procesar mensaje con el handler
-            response = self.message_handler.handle_user_message(
+
+            streaming_enabled = bool(
+                settings.ai_provider == "ollama"
+                and settings.ollama_channel_streaming_enabled
+                and channel == ChannelType.TELEGRAM
+            )
+            thinking_enabled = bool(
+                settings.ai_provider == "ollama"
+                and settings.ollama_channel_thinking_enabled
+            )
+
+            traced_response = self.message_handler.handle_user_message_with_trace(
                 user_id=incoming_message.user_id,
                 content=incoming_message.content,
                 message_type=incoming_message.message_type,
-                metadata=incoming_message.metadata
+                metadata=incoming_message.metadata,
+                include_thinking=thinking_enabled,
             )
-            
-            # Enviar respuesta
-            outgoing_message = OutgoingMessage(
+
+            emitter = self._build_response_emitter(
+                channel=channel,
+                adapter=adapter,
                 recipient_id=incoming_message.user_id,
-                content=response,
-                channel=channel
+                streaming_enabled=streaming_enabled,
+                show_thinking=thinking_enabled,
             )
-            
-            success = adapter.send_message(outgoing_message)
+
+            success = emitter.emit(
+                content=traced_response.get("content", ""),
+                thinking=traced_response.get("thinking", ""),
+            )
             
             if success:
                 self.logger.info(f"Mensaje procesado exitosamente en {channel.value}")
@@ -491,6 +510,68 @@ class UnifiedChannelService:
         except Exception as e:
             self.logger.error(f"Error procesando webhook de {channel.value}: {e}")
             return False
+
+    def _is_ignorable_event(self, *, channel: ChannelType, raw_data: Dict[str, Any]) -> bool:
+        """Determina si un webhook sin mensaje es un evento válido a ignorar."""
+        try:
+            if channel == ChannelType.WHATSAPP:
+                entry = (raw_data.get("entry") or [])
+                if not entry:
+                    return False
+                changes = (entry[0].get("changes") or [])
+                if not changes:
+                    return False
+                value = changes[0].get("value", {})
+                # Status updates de Meta (delivered/read/sent) y otros callbacks sin messages
+                if "statuses" in value:
+                    return True
+                if "messages" not in value:
+                    return True
+                if not value.get("messages"):
+                    return True
+                return False
+
+            if channel == ChannelType.TELEGRAM:
+                # Telegram manda múltiples tipos de update, no solo "message"
+                if "message" not in raw_data and any(
+                    key in raw_data for key in (
+                        "edited_message",
+                        "channel_post",
+                        "edited_channel_post",
+                        "callback_query",
+                        "my_chat_member",
+                        "chat_member",
+                    )
+                ):
+                    return True
+                return False
+
+            return False
+        except Exception:
+            return False
+
+    def _build_response_emitter(
+        self,
+        *,
+        channel: ChannelType,
+        adapter: ChannelAdapter,
+        recipient_id: str,
+        streaming_enabled: bool,
+        show_thinking: bool,
+    ):
+        if channel == ChannelType.TELEGRAM:
+            return TelegramResponseEmitter(
+                adapter=adapter,
+                recipient_id=recipient_id,
+                streaming_enabled=streaming_enabled,
+                show_thinking=show_thinking,
+            )
+
+        return WhatsAppResponseEmitter(
+            adapter=adapter,
+            recipient_id=recipient_id,
+            show_thinking=show_thinking,
+        )
     
     def _download_media_if_needed(
         self, 
@@ -575,3 +656,136 @@ def get_unified_channel_service() -> UnifiedChannelService:
     from core.config.dependencies import get_unified_channel_service_dep
 
     return get_unified_channel_service_dep()
+
+
+class BaseChannelResponseEmitter:
+    """Interfaz base de emisión de respuestas por canal."""
+
+    def emit(self, *, content: str, thinking: str = "") -> bool:
+        raise NotImplementedError
+
+
+class WhatsAppResponseEmitter(BaseChannelResponseEmitter):
+    def __init__(self, *, adapter: ChannelAdapter, recipient_id: str, show_thinking: bool):
+        self.adapter = adapter
+        self.recipient_id = recipient_id
+        self.show_thinking = show_thinking
+
+    def emit(self, *, content: str, thinking: str = "") -> bool:
+        # WhatsApp no es ideal para simular streaming por chunks en webhook estándar.
+        # Se envía mensaje final y, opcionalmente, un aviso previo de procesamiento.
+        if self.show_thinking and thinking:
+            self.adapter.send_message(
+                OutgoingMessage(
+                    recipient_id=self.recipient_id,
+                    content="🤔 Analizando tu consulta...",
+                    channel=ChannelType.WHATSAPP,
+                )
+            )
+
+        return self.adapter.send_message(
+            OutgoingMessage(
+                recipient_id=self.recipient_id,
+                content=content,
+                channel=ChannelType.WHATSAPP,
+            )
+        )
+
+
+class TelegramResponseEmitter(BaseChannelResponseEmitter):
+    def __init__(
+        self,
+        *,
+        adapter: ChannelAdapter,
+        recipient_id: str,
+        streaming_enabled: bool,
+        show_thinking: bool,
+    ):
+        self.adapter = adapter
+        self.recipient_id = recipient_id
+        self.streaming_enabled = streaming_enabled
+        self.show_thinking = show_thinking
+
+    def emit(self, *, content: str, thinking: str = "") -> bool:
+        if not self.streaming_enabled:
+            return self.adapter.send_message(
+                OutgoingMessage(
+                    recipient_id=self.recipient_id,
+                    content=content,
+                    channel=ChannelType.TELEGRAM,
+                )
+            )
+
+        message_id = self._send_initial_message("⏳ Pensando...")
+        if message_id is None:
+            return self.adapter.send_message(
+                OutgoingMessage(
+                    recipient_id=self.recipient_id,
+                    content=content,
+                    channel=ChannelType.TELEGRAM,
+                )
+            )
+
+        header = ""
+        if self.show_thinking and thinking:
+            clipped_thinking = thinking[:1000]
+            header = f"🤔 Pensamiento:\n{clipped_thinking}\n\n✍️ Respuesta:\n"
+
+        stream_source = content or ""
+        chunk_size = max(40, int(settings.ollama_stream_chunk_size or 120))
+        max_updates = max(1, int(settings.ollama_stream_max_updates or 20))
+
+        emitted = 0
+        for idx in range(0, len(stream_source), chunk_size):
+            if emitted >= max_updates:
+                break
+            partial = stream_source[: idx + chunk_size]
+            text = f"{header}{partial}" if header else partial
+            if not self._edit_message(message_id=message_id, text=text):
+                return self.adapter.send_message(
+                    OutgoingMessage(
+                        recipient_id=self.recipient_id,
+                        content=content,
+                        channel=ChannelType.TELEGRAM,
+                    )
+                )
+            emitted += 1
+
+        final_text = f"{header}{stream_source}" if header else stream_source
+        return self._edit_message(message_id=message_id, text=final_text)
+
+    def _send_initial_message(self, text: str) -> Optional[int]:
+        try:
+            import requests
+
+            url = f"{self.adapter.api_url}/sendMessage"
+            payload = {
+                "chat_id": self.recipient_id,
+                "text": text,
+            }
+            response = requests.post(url, json=payload)
+            if response.status_code != 200:
+                return None
+
+            data = response.json()
+            if not data.get("ok"):
+                return None
+
+            return data.get("result", {}).get("message_id")
+        except Exception:
+            return None
+
+    def _edit_message(self, *, message_id: int, text: str) -> bool:
+        try:
+            import requests
+
+            url = f"{self.adapter.api_url}/editMessageText"
+            payload = {
+                "chat_id": self.recipient_id,
+                "message_id": message_id,
+                "text": text or " ",
+            }
+            response = requests.post(url, json=payload)
+            return response.status_code == 200
+        except Exception:
+            return False

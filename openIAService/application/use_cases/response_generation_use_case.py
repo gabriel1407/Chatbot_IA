@@ -78,6 +78,43 @@ class ResponseGenerationUseCase:
             self.logger.error(f"Error generando respuesta con IA: {e}")
             return "Disculpa, hubo un error generando la respuesta. Por favor intenta de nuevo."
 
+    def generate_ai_response_with_trace(
+        self,
+        user_id: str,
+        context_id: str,
+        processed_msg: Any,
+        rag_context: Optional[List[dict]] = None,
+        rag_enabled: bool = True,
+        include_thinking: bool = False,
+    ) -> dict:
+        """Genera respuesta y, opcionalmente, retorna traza de thinking si el proveedor la soporta."""
+        try:
+            if not rag_enabled:
+                return self.generate_legacy_response_with_trace(
+                    user_id=user_id,
+                    processed_msg=processed_msg,
+                    context_id=context_id,
+                    include_thinking=include_thinking,
+                )
+
+            if rag_context:
+                return self._generate_rag_response_with_trace(
+                    processed_msg=processed_msg,
+                    rag_context=rag_context,
+                    include_thinking=include_thinking,
+                )
+
+            return self._generate_plain_ai_response_with_trace(
+                processed_msg=processed_msg,
+                include_thinking=include_thinking,
+            )
+        except Exception as e:
+            self.logger.error(f"Error generando respuesta con traza: {e}")
+            return {
+                "content": "Disculpa, hubo un error generando la respuesta. Por favor intenta de nuevo.",
+                "thinking": "",
+            }
+
     def generate_legacy_response(
         self,
         user_id: str,
@@ -128,6 +165,28 @@ class ResponseGenerationUseCase:
         except Exception as e:
             self.logger.error(f"Error en fallback legacy sin RAG: {e}")
             return self._generate_plain_ai_response(processed_msg)
+
+    def generate_legacy_response_with_trace(
+        self,
+        user_id: str,
+        processed_msg: Any,
+        context_id: Optional[str] = None,
+        include_thinking: bool = False,
+    ) -> dict:
+        """Fallback legacy con salida enriquecida para UI/canales."""
+        response = self.generate_legacy_response(
+            user_id=user_id,
+            processed_msg=processed_msg,
+            context_id=context_id,
+        )
+        if not include_thinking:
+            return {"content": response, "thinking": ""}
+
+        # Para mantener compatibilidad del flujo legacy, no se expone thinking detallado.
+        return {
+            "content": response,
+            "thinking": "",
+        }
 
     def _should_use_web_search_with_llm(self, user_question: str) -> bool:
         simple_patterns = [
@@ -187,6 +246,42 @@ class ResponseGenerationUseCase:
         except Exception as e:
             self.logger.error(f"Error en generación LLM plana: {e}")
             return self._generate_default_response(processed_msg)
+
+    def _generate_plain_ai_response_with_trace(self, processed_msg: Any, include_thinking: bool = False) -> dict:
+        try:
+            provider = self.ai_provider_factory.get_provider()
+            system_prompt = (
+                "Eres un asistente útil. Responde de forma clara y concisa "
+                "basándote exclusivamente en el mensaje del usuario."
+            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": processed_msg.processed_content},
+            ]
+
+            if include_thinking and getattr(provider, "supports_thinking", lambda: False)():
+                traced = provider.generate_text_with_thinking(
+                    prompt=processed_msg.processed_content,
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=500,
+                    think=True,
+                )
+                return {
+                    "content": traced.get("content", ""),
+                    "thinking": traced.get("thinking", "") or "",
+                }
+
+            text = provider.generate_text(
+                prompt=processed_msg.processed_content,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=500,
+            )
+            return {"content": text, "thinking": ""}
+        except Exception as e:
+            self.logger.error(f"Error en generación LLM plana con traza: {e}")
+            return {"content": self._generate_default_response(processed_msg), "thinking": ""}
 
     def _generate_legacy_text_response(self, prompt: str, context: List[dict], language: str = "es") -> str:
         try:
@@ -267,6 +362,59 @@ Responde de forma concisa y relevante."""
         except Exception as e:
             self.logger.error(f"Error en generación RAG+OpenAI: {e}")
             return self._generate_default_response(processed_msg)
+
+    def _generate_rag_response_with_trace(
+        self,
+        processed_msg: Any,
+        rag_context: List[dict],
+        include_thinking: bool = False,
+    ) -> dict:
+        try:
+            provider = self.ai_provider_factory.get_provider()
+
+            context_str = "Información relevante:\n"
+            for i, chunk in enumerate(rag_context, 1):
+                content = chunk.get("content", "")
+                sim = chunk.get("similarity", 0)
+                context_str += f"[{i}] (Relevancia: {sim:.0%}) {content[:200]}...\n\n"
+
+            system_prompt = "Eres un asistente útil que responde basándote en la información proporcionada. Si la pregunta no se puede responder con esa información, indícalo."
+            user_prompt = f"""{context_str}
+
+Pregunta: {processed_msg.processed_content}
+
+Responde de forma concisa y relevante."""
+
+            if include_thinking and getattr(provider, "supports_thinking", lambda: False)():
+                traced = provider.generate_text_with_thinking(
+                    prompt=processed_msg.processed_content,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.7,
+                    max_tokens=500,
+                    think=True,
+                )
+                return {
+                    "content": traced.get("content", ""),
+                    "thinking": traced.get("thinking", "") or "",
+                }
+
+            resp_text = provider.generate_text(
+                prompt=processed_msg.processed_content,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.7,
+                max_tokens=500,
+            )
+
+            return {"content": resp_text, "thinking": ""}
+        except Exception as e:
+            self.logger.error(f"Error en generación RAG+LLM con traza: {e}")
+            return {"content": self._generate_default_response(processed_msg), "thinking": ""}
 
     @staticmethod
     def _generate_default_response(processed_msg: Any) -> str:

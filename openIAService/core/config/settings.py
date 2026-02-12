@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     ollama_model: Optional[str] = Field(default="gpt-oss:120b-cloud", env="OLLAMA_MODEL")
     ollama_embedding_model: Optional[str] = Field(default="embeddinggemma", env="OLLAMA_EMBEDDING_MODEL")
     ollama_api_key: Optional[str] = Field(None, env="OLLAMA_API_KEY")
+    ollama_channel_streaming_enabled: bool = Field(default=False, env="OLLAMA_CHANNEL_STREAMING_ENABLED")
+    ollama_channel_thinking_enabled: bool = Field(default=False, env="OLLAMA_CHANNEL_THINKING_ENABLED")
+    ollama_stream_chunk_size: int = Field(default=120, env="OLLAMA_STREAM_CHUNK_SIZE")
+    ollama_stream_max_updates: int = Field(default=20, env="OLLAMA_STREAM_MAX_UPDATES")
     
     # Telegram
     telegram_token: str = Field(..., env="TELEGRAM_TOKEN")
