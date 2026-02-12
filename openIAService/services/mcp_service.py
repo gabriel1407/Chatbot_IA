@@ -1,14 +1,14 @@
 import re
 from bs4 import BeautifulSoup
 import requests
-from decouple import config
 from core.ai.factory import get_ai_provider
+from core.config.settings import settings
 from core.logging.logger import get_app_logger
 
 # Usar el nuevo sistema de logging centralizado
 logger = get_app_logger()
 
-SERPAPI_KEY = config('SERPAPI_KEY')  # Agrega esto a tu .env
+SERPAPI_KEY = settings.serpapi_key
 # Proveedor configurable (OpenAI, Gemini, Ollama, ...)
 provider = get_ai_provider()
 
@@ -49,6 +49,10 @@ def link_reader_agent(url, question=None):
 def web_search_agent(query):
     logger.info("========== [MCP][WebSearch][ENTRADA] ==========")
     logger.info(f"[MCP][WebSearch] Consulta recibida: '{query}'")
+
+    if not SERPAPI_KEY:
+        logger.warning("[MCP][WebSearch] SERPAPI_KEY no configurada. Se omite búsqueda web.")
+        return "Búsqueda web no disponible: SERPAPI_KEY no configurada."
 
     params = {
         "q": query,

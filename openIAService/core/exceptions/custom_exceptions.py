@@ -13,6 +13,14 @@ class ChatbotBaseException(Exception):
         super().__init__(self.message)
 
 
+class APIException(ChatbotBaseException):
+    """Excepción de aplicación con status HTTP explícito."""
+
+    def __init__(self, message: str, status_code: int = 500, code: str = "API_ERROR"):
+        self.status_code = status_code
+        super().__init__(message=message, code=code)
+
+
 # Excepciones de Dominio
 class DomainException(ChatbotBaseException):
     """Excepción base para errores de dominio."""

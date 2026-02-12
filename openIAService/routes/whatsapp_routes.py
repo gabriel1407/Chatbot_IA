@@ -1,13 +1,10 @@
-from flask import Blueprint, request, jsonify
-import logging
-import json
+from flask import Blueprint, request
 from services.channel_adapters import ChannelType, get_unified_channel_service
 from core.config.settings import settings
 from core.logging.logger import get_app_logger
 
 whatsapp_bp = Blueprint('whatsapp', __name__)
 logger = get_app_logger()
-unified_service = get_unified_channel_service()
 
 @whatsapp_bp.route('/whatsapp', methods=['GET'])
 def verify_token():
@@ -37,6 +34,8 @@ def received_message():
 
         logger.info(f"Webhook de WhatsApp recibido")
         
+        unified_service = get_unified_channel_service()
+
         # Usar el servicio unificado para procesar (incluye búsqueda RAG)
         success = unified_service.process_webhook(ChannelType.WHATSAPP, body)
         

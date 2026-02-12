@@ -1,10 +1,9 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request
 from services.channel_adapters import ChannelType, get_unified_channel_service
 from core.logging.logger import get_app_logger
 
 telegram_bp = Blueprint('telegram_bp', __name__)
 logger = get_app_logger()
-unified_service = get_unified_channel_service()
 
 @telegram_bp.route('/webhook/telegram', methods=['POST'])
 def telegram_webhook():
@@ -23,6 +22,8 @@ def telegram_webhook():
         else:
             logger.info("Procesando webhook de Telegram (RAG deshabilitado)")
         
+        unified_service = get_unified_channel_service()
+
         # Usar el servicio unificado para procesar (incluye búsqueda RAG)
         success = unified_service.process_webhook(ChannelType.TELEGRAM, raw_data)
         

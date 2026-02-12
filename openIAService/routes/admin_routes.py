@@ -1,0 +1,183 @@
+"""
+Admin Routes - Endpoints operativos y de diagnóstico.
+Separa responsabilidades de rutas para mantener claridad arquitectónica.
+"""
+from datetime import datetime
+from flask import Blueprint, request, jsonify
+
+from application.dto.channel_requests import SendMessageRequest
+from services.channel_adapters import get_unified_channel_service
+from core.exceptions.custom_exceptions import APIException
+from core.logging.logger import get_app_logger
+
+
+admin_bp = Blueprint('admin', __name__, url_prefix='/api/v2')
+logger = get_app_logger()
+
+
+def build_success_response(*, data=None, message=None, status_code=200):
+    payload = {
+        "success": True,
+        "timestamp": datetime.now().isoformat(),
+    }
+    if data is not None:
+        payload["data"] = data
+    if message:
+        payload["message"] = message
+    return payload, status_code
+
+
+@admin_bp.route('/channels/status', methods=['GET'])
+def get_channels_status():
+    """Obtiene el estado de todos los canales de comunicación."""
+    unified_service = get_unified_channel_service()
+    stats = unified_service.get_channel_stats()
+    payload, status_code = build_success_response(data=stats)
+    return jsonify(payload), status_code
+
+
+@admin_bp.route('/conversation/<user_id>/summary', methods=['GET'])
+def get_conversation_summary_v2(user_id: str):
+    """Obtiene un resumen de la conversación de un usuario."""
+    unified_service = get_unified_channel_service()
+    context_id = request.args.get('context_id')
+    summary = unified_service.message_handler.get_conversation_summary(user_id, context_id)
+    payload, status_code = build_success_response(data=summary)
+    return jsonify(payload), status_code
+
+
+@admin_bp.route('/message/send', methods=['POST'])
+def send_message_v2():
+    """Endpoint para enviar mensajes programáticamente."""
+    unified_service = get_unified_channel_service()
+    data = request.get_json(silent=True)
+    if not data:
+        raise APIException(
+            message="No se proporcionaron datos JSON",
+            status_code=400,
+            code="INVALID_JSON",
+        )
+
+    try:
+        request_dto = SendMessageRequest.from_dict(data)
+    except ValueError as validation_error:
+        raise APIException(
+            message=str(validation_error),
+            status_code=400,
+            code="VALIDATION_ERROR",
+        )
+
+    success, message, response_status = unified_service.send_outgoing_message(
+        channel_name=request_dto.channel,
+        recipient_id=request_dto.recipient_id,
+        content=request_dto.content,
+    )
+
+    if not success:
+        raise APIException(
+            message=message,
+            status_code=response_status,
+            code="MESSAGE_SEND_ERROR",
+        )
+
+    payload, status_code = build_success_response(message=message, status_code=response_status)
+    return jsonify(payload), status_code
+
+
+@admin_bp.route('/health', methods=['GET'])
+def health_check_v2():
+    """Health check completo del sistema."""
+    unified_service = get_unified_channel_service()
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "2.0",
+        "components": {}
+    }
+
+    try:
+        channel_stats = unified_service.get_channel_stats()
+        health_status["components"]["channels"] = {
+            "status": "healthy",
+            "data": channel_stats
+        }
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["components"]["channels"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+    try:
+        unified_service.message_handler.get_conversation_summary("health_check")
+        health_status["components"]["message_handler"] = {
+            "status": "healthy",
+            "test_completed": True
+        }
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["components"]["message_handler"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+    try:
+        from services.context_cleanup_service import create_context_cleanup_service
+        cleanup_service = create_context_cleanup_service()
+        cleanup_status = cleanup_service.get_status()
+        health_status["components"]["context_cleanup"] = {
+            "status": "healthy",
+            "data": cleanup_status
+        }
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["components"]["context_cleanup"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+    status_code = 200 if health_status["status"] == "healthy" else 503
+    return jsonify(health_status), status_code
+
+
+@admin_bp.route('/architecture/info', methods=['GET'])
+def get_architecture_info():
+    """Obtiene información sobre la arquitectura implementada."""
+    architecture_info = {
+        "version": "2.0",
+        "architecture": "Clean Architecture + SOLID",
+        "patterns_implemented": [
+            "Repository Pattern",
+            "Strategy Pattern",
+            "Adapter Pattern",
+            "Factory Pattern",
+            "Dependency Injection",
+            "Use Cases (Clean Architecture)"
+        ],
+        "solid_principles": {
+            "S": "Single Responsibility - Cada clase tiene una responsabilidad",
+            "O": "Open/Closed - Extensible sin modificación",
+            "L": "Liskov Substitution - Implementaciones intercambiables",
+            "I": "Interface Segregation - Interfaces específicas",
+            "D": "Dependency Inversion - Dependencias a abstracciones"
+        },
+        "layers": {
+            "domain": "Entidades y lógica de negocio",
+            "application": "Casos de uso y servicios",
+            "infrastructure": "Implementaciones concretas",
+            "presentation": "API y interfaces"
+        },
+        "improvements": [
+            "Limpieza automática de contextos cada 24 horas",
+            "Logging centralizado y estructurado",
+            "Manejo unificado de múltiples canales",
+            "Procesamiento de mensajes con estrategias",
+            "Inyección de dependencias",
+            "Testing más fácil y mantenible"
+        ],
+        "compatibility": "Mantiene compatibilidad con código existente mediante adaptadores",
+        "migration_status": "Fase 4 en progreso - hardening y estandarización de respuestas"
+    }
+
+    payload, status_code = build_success_response(data=architecture_info)
+    return jsonify(payload), status_code

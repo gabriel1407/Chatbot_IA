@@ -7,13 +7,19 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
 
-from domain.entities.message import Message, MessageRole, MessageType
-from domain.entities.conversation import Conversation
+from domain.entities.message import MessageRole, MessageType
 from application.use_cases.context_use_cases import (
     AddMessageToContextUseCase,
     RetrieveContextUseCase
 )
+from application.use_cases.response_generation_use_case import ResponseGenerationUseCase
 from core.logging.logger import get_application_logger
+from services.response_generation_adapters import (
+    ContextPortAdapter,
+    WebAssistPortAdapter,
+    AIProviderFactoryAdapter,
+    RAGSearchPortAdapter,
+)
 
 
 class MessageProcessingStrategy(ABC):
@@ -95,7 +101,7 @@ class AudioProcessingStrategy(MessageProcessingStrategy):
         
         try:
             # Usar el servicio existente de transcripción en el proyecto
-            from lanchaing_service import process_audio
+            from services.files_processing_service import process_audio
             text = process_audio(audio_path, 'es')
             return text or "No se pudo transcribir el audio"
         except Exception:
@@ -103,7 +109,7 @@ class AudioProcessingStrategy(MessageProcessingStrategy):
             try:
                 from pydub import AudioSegment
                 import os
-                from lanchaing_service import process_audio
+                from services.files_processing_service import process_audio
                 wav_path = os.path.splitext(audio_path)[0] + ".wav"
                 audio_seg = AudioSegment.from_file(audio_path)
                 audio_seg.export(wav_path, format="wav")
@@ -268,12 +274,19 @@ class ImprovedMessageHandler:
         add_message_use_case: AddMessageToContextUseCase,
         retrieve_context_use_case: RetrieveContextUseCase,
         message_processor: MessageProcessorService,
-        ai_service=None  # Aquí inyectarías el servicio de IA
+        ai_service=None,  # Aquí inyectarías el servicio de IA
+        response_generation_use_case: Optional[ResponseGenerationUseCase] = None,
     ):
         self.add_message_use_case = add_message_use_case
         self.retrieve_context_use_case = retrieve_context_use_case
         self.message_processor = message_processor
         self.ai_service = ai_service
+        self.response_generation_use_case = response_generation_use_case or ResponseGenerationUseCase(
+            context_port=ContextPortAdapter(),
+            web_assist_port=WebAssistPortAdapter(),
+            ai_provider_factory=AIProviderFactoryAdapter(),
+            rag_search_port=RAGSearchPortAdapter(),
+        )
         self.logger = get_application_logger()
     
     def handle_user_message(
@@ -321,15 +334,28 @@ class ImprovedMessageHandler:
             from core.config.settings import settings
             # Si RAG está deshabilitado, usar el pipeline legado (openia_service)
             if not settings.rag_enabled:
-                ai_response = self._generate_legacy_openia_response(user_id, processed_msg)
+                ai_response = self.response_generation_use_case.generate_legacy_response(
+                    user_id,
+                    processed_msg,
+                    context_id=conversation.context_id
+                )
             else:
                 # Buscar en RAG (texto y audio transcrito)
                 rag_context = None
                 if message_type in (MessageType.TEXT, MessageType.AUDIO):
-                    rag_context = self._search_rag_context(user_id, processed_msg.processed_content)
+                    rag_context = self.response_generation_use_case.search_rag_context(
+                        user_id,
+                        processed_msg.processed_content,
+                    )
 
                 # 3. Generar respuesta con IA (con contexto RAG si existe)
-                ai_response = self._generate_ai_response(conversation, processed_msg, rag_context)
+                ai_response = self.response_generation_use_case.generate_ai_response(
+                    user_id=conversation.user_id,
+                    context_id=conversation.context_id,
+                    processed_msg=processed_msg,
+                    rag_context=rag_context,
+                    rag_enabled=True,
+                )
             
             # 4. Agregar respuesta del asistente al contexto
             updated_conversation = self.add_message_use_case.execute(
@@ -346,165 +372,6 @@ class ImprovedMessageHandler:
         except Exception as e:
             self.logger.error(f"Error en handle_user_message: {e}")
             return "Lo siento, ocurrió un error procesando tu mensaje. Por favor intenta de nuevo."
-    
-    def _search_rag_context(self, user_id: str, query: str, top_k: Optional[int] = None) -> Optional[List[dict]]:
-        """
-        Busca contexto en RAG para la consulta del usuario.
-        Búsqueda GLOBAL - sin filtrar por user_id.
-        
-        Args:
-            user_id: ID del usuario (para logging, no para filtrado)
-            query: Texto a buscar
-            top_k: Número de resultados
-            
-        Returns:
-            Lista de chunks encontrados o None
-        """
-        try:
-            import requests
-            from core.config.settings import settings
-
-            if not settings.rag_enabled:
-                return None
-            
-            # Buscar GLOBALMENTE en RAG (sin user_id)
-            url = "https://optimus.pegasoconsulting.net/service_ia/api/rag/search"
-            params = {
-                "query": query,
-                "top_k": top_k or settings.rag_chat_top_k or settings.rag_top_k,
-                # Búsqueda global con umbral configurable para no perder contexto útil
-                "min_similarity": settings.rag_global_min_similarity,
-            }
-            
-            response = requests.get(url, params=params, timeout=5)
-            response.raise_for_status()
-            
-            data = response.json()
-            if data.get("ok"):
-                results = data.get("results", [])
-                if results:
-                    self.logger.info(f"RAG: {len(results)} chunks encontrados para usuario {user_id}")
-                    return results
-            
-            return None
-            
-        except requests.exceptions.Timeout:
-            self.logger.warning(f"RAG timeout para usuario {user_id}")
-            return None
-        except Exception as e:
-            self.logger.warning(f"Error buscando en RAG: {e}")
-            return None
-    
-    def _generate_ai_response(self, conversation: Conversation, processed_msg: ProcessedMessage, rag_context: Optional[List[dict]] = None) -> str:
-        """
-        Genera respuesta usando servicio de IA.
-        Si hay contexto RAG disponible, lo usa para contextualizar la respuesta.
-        """
-        try:
-            # Si RAG está deshabilitado, usa pipeline legado (comportamiento previo)
-            try:
-                from core.config.settings import settings
-                if not settings.rag_enabled:
-                    return self._generate_legacy_openia_response(conversation.user_id, processed_msg)
-            except Exception:
-                pass
-
-            # Con RAG: usar contexto si existe; si no, LLM plano
-            if rag_context:
-                return self._generate_rag_response(processed_msg, rag_context)
-            return self._generate_plain_ai_response(processed_msg)
-
-        except Exception as e:
-            self.logger.error(f"Error generando respuesta con IA: {e}")
-            return "Disculpa, hubo un error generando la respuesta. Por favor intenta de nuevo."
-    
-    def _generate_default_response(self, processed_msg: ProcessedMessage) -> str:
-        """Genera respuesta simulada sin RAG."""
-        if processed_msg.message_type == MessageType.TEXT:
-            return f"Entiendo tu mensaje: '{processed_msg.processed_content[:100]}...' ¿En qué más puedo ayudarte?"
-        elif processed_msg.message_type == MessageType.IMAGE:
-            return "He analizado tu imagen. ¿Hay algo específico que te gustaría saber sobre ella?"
-        elif processed_msg.message_type == MessageType.AUDIO:
-            # Ya contamos con el texto transcrito en processed_content; delegar a LLM plano si no hay RAG
-            return f"He recibido tu audio. Texto detectado: '{processed_msg.processed_content[:120]}'. ¿Deseas que te ayude con algo específico sobre esto?"
-        elif processed_msg.message_type == MessageType.DOCUMENT:
-            return "He procesado tu documento. ¿Tienes alguna pregunta específica sobre su contenido?"
-        else:
-            return "He recibido tu mensaje. ¿Cómo puedo ayudarte?"
-
-    def _generate_plain_ai_response(self, processed_msg: ProcessedMessage) -> str:
-        """Genera respuesta con OpenAI usando solo el contenido procesado (sin RAG)."""
-        try:
-            from core.ai.factory import get_ai_provider
-
-            provider = get_ai_provider()
-
-            system_prompt = (
-                "Eres un asistente útil. Responde de forma clara y concisa "
-                "basándote exclusivamente en el mensaje del usuario."
-            )
-
-            resp_text = provider.generate_text(
-                prompt=processed_msg.processed_content,
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": processed_msg.processed_content}],
-                temperature=0.7,
-                max_tokens=500,
-            )
-            return resp_text
-        except Exception as e:
-            self.logger.error(f"Error en generación LLM plana: {e}")
-            return self._generate_default_response(processed_msg)
-
-    def _generate_legacy_openia_response(self, user_id: str, processed_msg: ProcessedMessage) -> str:
-        """Usa el pipeline legado de openia_service cuando RAG está deshabilitado."""
-        try:
-            from services.openia_service import handle_text_message
-            # Para imágenes, pasar image_path para que use el flujo de visión
-            if processed_msg.message_type == MessageType.IMAGE:
-                image_path = processed_msg.metadata.get("file_path") if processed_msg.metadata else None
-                return handle_text_message(processed_msg.original_content or "Describe la imagen", user_id, image_path=image_path)
-            # Para audio ya tenemos el texto transcrito en processed_content
-            return handle_text_message(processed_msg.processed_content, user_id)
-        except Exception as e:
-            self.logger.error(f"Error en pipeline legado openia_service: {e}")
-            # Fallback a LLM plano
-            return self._generate_plain_ai_response(processed_msg)
-    
-    def _generate_rag_response(self, processed_msg: ProcessedMessage, rag_context: List[dict]) -> str:
-        """Genera respuesta usando OpenAI con contexto RAG."""
-        try:
-            from core.ai.factory import get_ai_provider
-
-            provider = get_ai_provider()
-
-            # Construir contexto
-            context_str = "Información relevante:\n"
-            for i, chunk in enumerate(rag_context, 1):
-                content = chunk.get("content", "")
-                sim = chunk.get("similarity", 0)
-                context_str += f"[{i}] (Relevancia: {sim:.0%}) {content[:200]}...\n\n"
-
-            # Prompt con RAG
-            system_prompt = "Eres un asistente útil que responde basándote en la información proporcionada. Si la pregunta no se puede responder con esa información, indícalo."
-
-            user_prompt = f"""{context_str}
-
-Pregunta: {processed_msg.processed_content}
-
-Responde de forma concisa y relevante."""
-
-            resp_text = provider.generate_text(
-                prompt=processed_msg.processed_content,
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                temperature=0.7,
-                max_tokens=500,
-            )
-
-            return resp_text
-            
-        except Exception as e:
-            self.logger.error(f"Error en generación RAG+OpenAI: {e}")
-            return self._generate_default_response(processed_msg)
     
     def get_conversation_summary(self, user_id: str, context_id: Optional[str] = None) -> Dict[str, Any]:
         """Obtiene un resumen de la conversación."""
@@ -536,6 +403,12 @@ def create_message_handler() -> ImprovedMessageHandler:
     Factory function que crea un ImprovedMessageHandler con todas sus dependencias.
     Implementa el patrón Factory y facilita la inyección de dependencias.
     """
+    try:
+        from core.config.dependencies import get_message_handler
+        return get_message_handler()
+    except Exception:
+        pass
+
     from infrastructure.persistence.sqlite_conversation_repository import (
         SQLiteConversationRepository,
         TopicDetectionService
@@ -562,11 +435,20 @@ def create_message_handler() -> ImprovedMessageHandler:
     
     # Crear procesador de mensajes
     message_processor = MessageProcessorService()
+
+    # Crear caso de uso de generación de respuestas (desacoplado por puertos)
+    response_generation_use_case = ResponseGenerationUseCase(
+        context_port=ContextPortAdapter(),
+        web_assist_port=WebAssistPortAdapter(),
+        ai_provider_factory=AIProviderFactoryAdapter(),
+        rag_search_port=RAGSearchPortAdapter(),
+    )
     
     # Crear handler
     return ImprovedMessageHandler(
         add_message_use_case=add_message_use_case,
         retrieve_context_use_case=retrieve_context_use_case,
         message_processor=message_processor,
-        ai_service=None  # Aquí inyectarías el servicio de IA real
+        ai_service=None,  # Aquí inyectarías el servicio de IA real
+        response_generation_use_case=response_generation_use_case,
     )

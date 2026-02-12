@@ -65,6 +65,74 @@ def initialize_dependencies():
     from infrastructure.persistence.sqlite_conversation_repository import SQLiteConversationRepository
     DependencyContainer.register("ConversationRepository", SQLiteConversationRepository(settings.db_path))
 
+    # Handler de mensajes (application/use-cases + adapters)
+    try:
+        from infrastructure.persistence.sqlite_conversation_repository import TopicDetectionService
+        from application.use_cases.context_use_cases import (
+            RetrieveContextUseCase,
+            SaveContextUseCase,
+            AddMessageToContextUseCase,
+        )
+        from application.use_cases.response_generation_use_case import ResponseGenerationUseCase
+        from services.response_generation_adapters import (
+            ContextPortAdapter,
+            WebAssistPortAdapter,
+            AIProviderFactoryAdapter,
+            RAGSearchPortAdapter,
+        )
+        from services.improved_message_handler import (
+            MessageProcessorService,
+            ImprovedMessageHandler,
+        )
+
+        conversation_repository = DependencyContainer.get("ConversationRepository")
+        topic_detection_service = TopicDetectionService()
+        retrieve_context_use_case = RetrieveContextUseCase(conversation_repository, topic_detection_service)
+        save_context_use_case = SaveContextUseCase(conversation_repository)
+        add_message_use_case = AddMessageToContextUseCase(
+            conversation_repository,
+            retrieve_context_use_case,
+            save_context_use_case,
+        )
+
+        response_generation_use_case = ResponseGenerationUseCase(
+            context_port=ContextPortAdapter(),
+            web_assist_port=WebAssistPortAdapter(),
+            ai_provider_factory=AIProviderFactoryAdapter(),
+            rag_search_port=RAGSearchPortAdapter(),
+        )
+        DependencyContainer.register("ResponseGenerationUseCase", response_generation_use_case)
+
+        message_handler = ImprovedMessageHandler(
+            add_message_use_case=add_message_use_case,
+            retrieve_context_use_case=retrieve_context_use_case,
+            message_processor=MessageProcessorService(),
+            ai_service=None,
+            response_generation_use_case=response_generation_use_case,
+        )
+        DependencyContainer.register("MessageHandler", message_handler)
+
+        from services.channel_adapters import (
+            UnifiedChannelService,
+            ChannelType,
+            WhatsAppAdapter,
+            TelegramAdapter,
+        )
+
+        channel_adapters = {
+            ChannelType.WHATSAPP: WhatsAppAdapter(),
+            ChannelType.TELEGRAM: TelegramAdapter(),
+        }
+        DependencyContainer.register("ChannelAdapters", channel_adapters)
+
+        unified_channel_service = UnifiedChannelService(
+            message_handler=message_handler,
+            adapters=channel_adapters,
+        )
+        DependencyContainer.register("UnifiedChannelService", unified_channel_service)
+    except Exception as e:
+        logger.warning(f"MessageHandler no inicializado desde container: {e}")
+
     # RAG-related deps solo si está habilitado
     if getattr(settings, "rag_enabled", True):
         try:
@@ -125,11 +193,11 @@ def get_vector_store_repository():
     return DependencyContainer.get("VectorStoreRepository")
 
 
-def get_telegram_service():
-    """Obtiene el servicio de Telegram."""
-    return DependencyContainer.get("TelegramService")
+def get_message_handler():
+    """Obtiene el handler principal de mensajes."""
+    return DependencyContainer.get("MessageHandler")
 
 
-def get_whatsapp_service():
-    """Obtiene el servicio de WhatsApp."""
-    return DependencyContainer.get("WhatsAppService")
+def get_unified_channel_service_dep():
+    """Obtiene el servicio unificado de canales."""
+    return DependencyContainer.get("UnifiedChannelService")

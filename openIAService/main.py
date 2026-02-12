@@ -4,6 +4,7 @@ from routes.telegram_routes import telegram_bp
 from routes.file_routes import file_bp
 from routes.context_routes import context_bp
 from routes.improved_routes import improved_bp
+from routes.admin_routes import admin_bp
 from routes.rag_routes import rag_bp
 from routes.chat_routes import chat_bp
 from core.config.settings import settings
@@ -11,17 +12,20 @@ from services.context_cleanup_service import create_context_cleanup_service
 import logging
 import atexit
 from core.config.dependencies import initialize_dependencies
-from core.config.settings import settings
+from core.exceptions.http_handlers import register_http_error_handlers
 
 app = Flask(__name__)
 app.secret_key = settings.secret_key
 app.config['UPLOAD_FOLDER'] = settings.upload_folder
+
+register_http_error_handlers(app)
 
 app.register_blueprint(whatsapp_bp)
 app.register_blueprint(telegram_bp)
 app.register_blueprint(file_bp)
 app.register_blueprint(context_bp)
 app.register_blueprint(improved_bp)  # Nueva arquitectura
+app.register_blueprint(admin_bp)  # Endpoints operativos v2
 app.register_blueprint(rag_bp)  # Endpoints RAG
 app.register_blueprint(chat_bp)  # Chat con RAG integrado
 

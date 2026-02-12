@@ -415,9 +415,20 @@ class UnifiedChannelService:
     Implementa Strategy Pattern y Dependency Injection.
     """
     
-    def __init__(self, message_handler: Optional[ImprovedMessageHandler] = None):
-        self.message_handler = message_handler or create_message_handler()
-        self.adapters: Dict[ChannelType, ChannelAdapter] = {
+    def __init__(
+        self,
+        message_handler: Optional[ImprovedMessageHandler] = None,
+        adapters: Optional[Dict[ChannelType, ChannelAdapter]] = None,
+    ):
+        if message_handler is not None:
+            self.message_handler = message_handler
+        else:
+            try:
+                from core.config.dependencies import get_message_handler
+                self.message_handler = get_message_handler()
+            except Exception:
+                self.message_handler = create_message_handler()
+        self.adapters: Dict[ChannelType, ChannelAdapter] = adapters or {
             ChannelType.WHATSAPP: WhatsAppAdapter(),
             ChannelType.TELEGRAM: TelegramAdapter()
         }
@@ -520,13 +531,47 @@ class UnifiedChannelService:
             }
         }
 
+    def resolve_channel(self, channel_name: str) -> Optional[ChannelType]:
+        """Resuelve el tipo de canal desde su nombre textual."""
+        normalized_channel_name = str(channel_name).strip().lower()
+        channel_map = {
+            ChannelType.WHATSAPP.value: ChannelType.WHATSAPP,
+            ChannelType.TELEGRAM.value: ChannelType.TELEGRAM,
+        }
+        return channel_map.get(normalized_channel_name)
 
-# Instancia global del servicio unificado
-_unified_service = None
+    def send_outgoing_message(
+        self,
+        *,
+        channel_name: str,
+        recipient_id: str,
+        content: str,
+    ) -> tuple[bool, str, int]:
+        """Envía un mensaje saliente abstraído por canal."""
+        channel = self.resolve_channel(channel_name)
+        if not channel:
+            return False, f"Canal no soportado: {channel_name}", 400
+
+        adapter = self.adapters.get(channel)
+        if not adapter:
+            return False, f"Adapter no disponible para canal {channel_name}", 500
+
+        message = OutgoingMessage(
+            recipient_id=recipient_id,
+            content=content,
+            channel=channel,
+        )
+
+        success = adapter.send_message(message)
+        if success:
+            self.logger.info(f"Mensaje enviado programáticamente a {channel_name}: {recipient_id}")
+            return True, "Mensaje enviado", 200
+
+        self.logger.error(f"Error enviando mensaje programáticamente a {channel_name}")
+        return False, "Error enviando mensaje", 500
 
 def get_unified_channel_service() -> UnifiedChannelService:
-    """Factory function para obtener el servicio unificado."""
-    global _unified_service
-    if _unified_service is None:
-        _unified_service = UnifiedChannelService()
-    return _unified_service
+    """Obtiene el servicio unificado desde el container de dependencias."""
+    from core.config.dependencies import get_unified_channel_service_dep
+
+    return get_unified_channel_service_dep()

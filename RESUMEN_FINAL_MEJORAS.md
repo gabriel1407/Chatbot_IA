@@ -1,5 +1,20 @@
 # 🚀 RESUMEN FINAL DE MEJORAS IMPLEMENTADAS
 
+## 🆕 Actualización Febrero 2026 (Fase 3 y Fase 4)
+
+### ✅ Fase 3 completada
+- Extracción de orquestación de respuestas a `application/use_cases/response_generation_use_case.py`.
+- Adapters de infraestructura para puertos de aplicación en `services/response_generation_adapters.py`.
+- Centralización de construcción de `MessageHandler` y `UnifiedChannelService` en `core/config/dependencies.py`.
+- Eliminación de fallback implícito/singleton en resolución de servicio unificado de canales.
+
+### ✅ Fase 4 aplicada
+- Manejo global de errores HTTP en `core/exceptions/http_handlers.py`.
+- Nueva excepción `APIException` con `status_code` y `code` semántico.
+- Homogeneización de rutas HTTP (`admin`, `rag`, `chat`, `context`, `file`) con validaciones y errores consistentes.
+- Contrato de error unificado: `success`, `error`, `code`, `timestamp`.
+
+
 ## ✅ Estado del Proyecto: COMPLETADO CON ÉXITO
 
 ### 📋 Tareas Solicitadas vs Implementadas

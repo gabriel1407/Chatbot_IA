@@ -14,7 +14,6 @@ idna==3.10
 certifi==2025.4.26
 
 openai==1.82.0
-python-decouple==3.8
 python-dotenv>=1.1.0,<2.0.0
 
 # Messaging

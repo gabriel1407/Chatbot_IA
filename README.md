@@ -290,10 +290,44 @@ POST /api/v2/webhook/telegram  # Webhook Telegram mejorado
 ### 📊 **Monitoreo**
 ```bash
 GET /api/v2/health               # Estado del sistema
+GET /api/v2/channels/status      # Estado de canales (admin)
+GET /api/v2/conversation/:id/summary # Resumen por usuario (admin)
+POST /api/v2/message/send        # Envío programático (admin)
 GET /api/context/status          # Estado de contextos
 POST /api/context/cleanup        # Limpiar contextos manualmente
 GET /api/v2/architecture/info    # Información de arquitectura
 ```
+
+### 🧾 Contrato de Respuestas y Errores
+
+Todas las rutas HTTP nuevas/refactorizadas usan formato homogéneo.
+
+Respuesta exitosa:
+```json
+{
+  "success": true,
+  "data": {},
+  "timestamp": "2026-02-12T12:00:00"
+}
+```
+
+Respuesta de error (global handler):
+```json
+{
+  "success": false,
+  "error": "mensaje descriptivo",
+  "code": "VALIDATION_ERROR",
+  "timestamp": "2026-02-12T12:00:00"
+}
+```
+
+Códigos frecuentes:
+- `VALIDATION_ERROR`
+- `INVALID_JSON`
+- `RAG_DISABLED`
+- `MESSAGE_SEND_ERROR`
+- `UNSUPPORTED_FILE_EXTENSION`
+- `UNHANDLED_ERROR`
 
 ### 📂 **Archivos**
 ```bash
@@ -603,6 +637,13 @@ Este proyecto está bajo la licencia MIT. Ver [LICENSE](LICENSE) para más detal
 *Última actualización: Febrero 2026*
 
 ## 📄 Changelog Reciente
+
+### v2.1.0 (Febrero 2026)
+- ✅ **Fase 3 completada**: extracción de generación de respuestas a `ResponseGenerationUseCase`
+- ✅ **DI centralizado** para `MessageHandler` y `UnifiedChannelService`
+- ✅ **Fase 4 iniciada y aplicada**: manejo global de errores HTTP con `APIException`
+- ✅ **Rutas homogeneizadas**: `admin_routes`, `rag_routes`, `chat_routes`, `context_routes`, `file_routes`
+- ✅ **Semántica HTTP consistente** en validaciones y errores de negocio
 
 ### v2.0.0 (Febrero 2026)
 - ✅ **Soporte multi-proveedor**: OpenAI, Gemini, Ollama
