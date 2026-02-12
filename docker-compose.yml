@@ -13,7 +13,7 @@ services:
       retries: 20
       start_period: 5s
     volumes:
-      - chroma_data:/chroma/.chroma/index
+      - chroma_data:/chroma
     ports:
       - "127.0.0.1:9000:8000"
     # Optional healthcheck; commented to avoid gating app startup if Chroma API path changes
