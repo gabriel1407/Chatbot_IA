@@ -6,7 +6,7 @@ from routes.context_routes import context_bp
 from routes.improved_routes import improved_bp
 from routes.rag_routes import rag_bp
 from routes.chat_routes import chat_bp
-from config import Config
+from core.config.settings import settings
 from services.context_cleanup_service import create_context_cleanup_service
 import logging
 import atexit
@@ -14,8 +14,8 @@ from core.config.dependencies import initialize_dependencies
 from core.config.settings import settings
 
 app = Flask(__name__)
-app.config.from_object(Config)
-Config.init_app(app)
+app.secret_key = settings.secret_key
+app.config['UPLOAD_FOLDER'] = settings.upload_folder
 
 app.register_blueprint(whatsapp_bp)
 app.register_blueprint(telegram_bp)

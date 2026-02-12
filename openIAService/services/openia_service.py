@@ -1,8 +1,6 @@
 import json
 import base64
 import re
-from openai import OpenAI
-from decouple import config
 
 from services.context_service_adapter import load_context, save_context
 from core.config.settings import settings
@@ -10,15 +8,34 @@ from core.config.dependencies import DependencyContainer
 from services.mcp_service import extract_url_from_message, link_reader_agent, mcp_pipeline
 from core.logging.logger import get_app_logger
 
+from core.ai.factory import get_ai_provider
+
 # Usar el nuevo sistema de logging centralizado
 logger = get_app_logger()
 
-# Configura la clave de API de OpenAI
-OPENAI_API_KEY = config('OPENAI_API_KEY')
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Instanciar proveedor configurado
+provider = get_ai_provider()
 
 
 def should_use_web_search_with_llm(user_question):
+    # Fast-path: preguntas simples que no necesitan búsqueda web ni clasificador LLM
+    simple_patterns = [
+        r'^hola\b', r'^hello\b', r'^hi\b', r'^hey\b',
+        r'\bquien\s+eres\b', r'\bwho\s+are\s+you\b',
+        r'\bcomo\s+estas\b', r'\bhow\s+are\s+you\b',
+        r'\bque\s+eres\b', r'\bwhat\s+are\s+you\b',
+        r'^gracias\b', r'^thanks\b', r'^thank\s+you\b',
+        r'^adios\b', r'^bye\b', r'^goodbye\b',
+        r'\btu\s+nombre\b', r'\byour\s+name\b'
+    ]
+    
+    question_lower = user_question.lower().strip()
+    for pattern in simple_patterns:
+        if re.search(pattern, question_lower, re.IGNORECASE):
+            logger.info(f"[LLM-INTENT] Fast-path: pregunta simple detectada '{user_question}' → MODEL")
+            return False
+    
+    # Para otras preguntas, usar clasificador LLM
     prompt = (
         "Actúa como un clasificador de intención. "
         "Responde SOLO con 'WEB' si la pregunta requiere buscar información factual, de actualidad, o reciente en internet. "
@@ -27,21 +44,16 @@ def should_use_web_search_with_llm(user_question):
         f"Pregunta: {user_question}"
     )
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",   # Puedes cambiar a gpt-3.5-turbo si buscas ahorrar tokens
-            messages=[
-                {"role": "system", "content": "Eres un detector de intención para un asistente conversacional."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=5,
-            temperature=0
-        )
-        decision = response.choices[0].message.content.strip().upper()
+        messages = [
+            {"role": "system", "content": "Eres un detector de intención para un asistente conversacional."},
+            {"role": "user", "content": prompt},
+        ]
+        resp_text = provider.generate_text(prompt=prompt, messages=messages, max_tokens=5, temperature=0)
+        decision = (resp_text or "").strip().upper()
         logger.info(f"[LLM-INTENT] Clasificador para pregunta '{user_question}': {decision}")
         return decision == "WEB"
     except Exception as e:
         logger.error(f"[LLM-INTENT] Error al clasificar la pregunta: {e}")
-        # Si hay error, responde de forma conservadora (usa modelo, no web)
         return False
 
 
@@ -73,14 +85,9 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
         messages.insert(0, {"role": "system", "content": f"Por favor, responde en {language}."})
     
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            max_tokens=600,
-            temperature=0.7,
-        )
-        if response and response.choices:
-            return response.choices[0].message.content.strip()
+        resp_text = provider.generate_text(prompt=prompt, messages=messages, max_tokens=600, temperature=0.7)
+        if resp_text:
+            return resp_text.strip()
         return "No se pudo generar una respuesta."
     except Exception as e:
         logger.error(f"Error al generar respuesta con OpenAI: {e}")
@@ -102,16 +109,12 @@ def generate_openai_vision_response(prompt, image_path, language='es'):
     ]
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o",  # Modelo recomendado para visión y texto
-            messages=messages,
-            max_tokens=800,
-        )
-        if response and response.choices:
-            return response.choices[0].message.content.strip()
+        resp_text = provider.generate_text(prompt=prompt, messages=messages, max_tokens=800)
+        if resp_text:
+            return resp_text.strip()
         return "No se pudo generar una respuesta."
     except Exception as e:
-        logger.error(f"Error en vision con OpenAI: {e}")
+        logger.error(f"Error en vision con proveedor IA: {e}")
         return "Error al analizar la imagen."
 
 def handle_text_message(message, user_id, image_path=None, context_id="default"):
@@ -179,9 +182,9 @@ def handle_text_message(message, user_id, image_path=None, context_id="default")
         if rag_context_note:
             context = [rag_context_note] + context
 
-        logger.info(f"[OPENAI][Entrada] Flujo estándar para usuario {user_id} con mensaje: {prompt}")
+        logger.info(f"[AI][Entrada] Flujo estándar para usuario {user_id} con mensaje: {prompt}")
         response = generate_openai_response(prompt, context, language, initial_instructions)
-        logger.info(f"[OPENAI][Salida] Respuesta estándar generada para usuario {user_id}: {response}")
+        logger.info(f"[AI][Salida] Respuesta estándar generada para usuario {user_id}: {response}")
         context.append({"role": "user", "content": prompt})
         context.append({"role": "assistant", "content": response})
         save_context(user_id, context, context_id)

@@ -368,7 +368,7 @@ class ImprovedMessageHandler:
                 return None
             
             # Buscar GLOBALMENTE en RAG (sin user_id)
-            url = "http://localhost:8082/api/rag/search"
+            url = "https://optimus.pegasoconsulting.net/service_ia/api/rag/search"
             params = {
                 "query": query,
                 "top_k": top_k or settings.rag_chat_top_k or settings.rag_top_k,
@@ -401,11 +401,19 @@ class ImprovedMessageHandler:
         Si hay contexto RAG disponible, lo usa para contextualizar la respuesta.
         """
         try:
-            # Si hay contexto RAG, usar RAG+LLM; si no, usar LLM plano
+            # Si RAG está deshabilitado, usa pipeline legado (comportamiento previo)
+            try:
+                from core.config.settings import settings
+                if not settings.rag_enabled:
+                    return self._generate_legacy_openia_response(conversation.user_id, processed_msg)
+            except Exception:
+                pass
+
+            # Con RAG: usar contexto si existe; si no, LLM plano
             if rag_context:
                 return self._generate_rag_response(processed_msg, rag_context)
             return self._generate_plain_ai_response(processed_msg)
-            
+
         except Exception as e:
             self.logger.error(f"Error generando respuesta con IA: {e}")
             return "Disculpa, hubo un error generando la respuesta. Por favor intenta de nuevo."
@@ -427,26 +435,22 @@ class ImprovedMessageHandler:
     def _generate_plain_ai_response(self, processed_msg: ProcessedMessage) -> str:
         """Genera respuesta con OpenAI usando solo el contenido procesado (sin RAG)."""
         try:
-            from openai import OpenAI
-            from core.config.settings import settings
+            from core.ai.factory import get_ai_provider
 
-            client = OpenAI(api_key=settings.openai_api_key)
+            provider = get_ai_provider()
 
             system_prompt = (
                 "Eres un asistente útil. Responde de forma clara y concisa "
                 "basándote exclusivamente en el mensaje del usuario."
             )
 
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": processed_msg.processed_content},
-                ],
+            resp_text = provider.generate_text(
+                prompt=processed_msg.processed_content,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": processed_msg.processed_content}],
                 temperature=0.7,
                 max_tokens=500,
             )
-            return response.choices[0].message.content
+            return resp_text
         except Exception as e:
             self.logger.error(f"Error en generación LLM plana: {e}")
             return self._generate_default_response(processed_msg)
@@ -469,38 +473,34 @@ class ImprovedMessageHandler:
     def _generate_rag_response(self, processed_msg: ProcessedMessage, rag_context: List[dict]) -> str:
         """Genera respuesta usando OpenAI con contexto RAG."""
         try:
-            from openai import OpenAI
-            from core.config.settings import settings
-            
-            client = OpenAI(api_key=settings.openai_api_key)
-            
+            from core.ai.factory import get_ai_provider
+
+            provider = get_ai_provider()
+
             # Construir contexto
             context_str = "Información relevante:\n"
             for i, chunk in enumerate(rag_context, 1):
                 content = chunk.get("content", "")
                 sim = chunk.get("similarity", 0)
                 context_str += f"[{i}] (Relevancia: {sim:.0%}) {content[:200]}...\n\n"
-            
+
             # Prompt con RAG
             system_prompt = "Eres un asistente útil que responde basándote en la información proporcionada. Si la pregunta no se puede responder con esa información, indícalo."
-            
+
             user_prompt = f"""{context_str}
 
 Pregunta: {processed_msg.processed_content}
 
 Responde de forma concisa y relevante."""
-            
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+
+            resp_text = provider.generate_text(
+                prompt=processed_msg.processed_content,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 temperature=0.7,
-                max_tokens=500
+                max_tokens=500,
             )
-            
-            return response.choices[0].message.content
+
+            return resp_text
             
         except Exception as e:
             self.logger.error(f"Error en generación RAG+OpenAI: {e}")

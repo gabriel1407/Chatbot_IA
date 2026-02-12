@@ -41,10 +41,16 @@ services:
       - CHROMA_HOST=chroma
       - CHROMA_PORT=8000
       - ENVIRONMENT=development
-      - WEB_CONCURRENCY=2
+      - WEB_CONCURRENCY=1
       - GTHREADS=4
       - GUNICORN_TIMEOUT=300
       - GUNICORN_KEEPALIVE=5
+      # Multi-provider AI settings (defaults managed in settings.py)
+      - AI_PROVIDER=${AI_PROVIDER}
+      - OLLAMA_URL=${OLLAMA_URL}
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL}
     depends_on:
       chroma:
         condition: service_healthy
@@ -55,6 +61,10 @@ services:
       - ./openIAService/local:/app/openIAService/local
     ports:
       - "127.0.0.1:9001:8082"
+    # Allow container to reach host services (e.g., Ollama running on host)
+    # host.docker.internal is mapped to the host gateway IP
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Limitar recursos (opcional, ajusta a tus necesidades)
     # Estos campos son soportados por Docker Compose moderno
     deploy:

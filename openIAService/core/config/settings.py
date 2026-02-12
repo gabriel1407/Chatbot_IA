@@ -65,6 +65,24 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     openai_max_tokens: int = 600
     openai_temperature: float = 0.7
+
+    # Multi-provider AI settings
+    # Which provider to use by default: 'openai', 'gemini', 'ollama', etc.
+    ai_provider: str = Field(default="ollama")
+
+    # Gemini (Google) credentials / endpoint (optional)
+    gemini_api_key: Optional[str] = Field(None, env="GEMINI_API_KEY")
+    gemini_api_url: Optional[str] = Field(None, env="GEMINI_API_URL")
+    # Gemini model identifier (use model names like 'gemini-pro', 'gemini-1.5-flash')
+    gemini_model: Optional[str] = Field(default="gemini-2.5-flash-lite", env="GEMINI_MODEL")
+    gemini_embedding_model: Optional[str] = Field(default="gemini-embedding-001", env="GEMINI_EMBEDDING_MODEL")
+
+    # Ollama (local model serving) settings (optional)
+    # URL should point to base Ollama server (e.g., http://localhost:11434), not including /api/generate
+    ollama_url: Optional[str] = Field(default="http://host.docker.internal:11434", env="OLLAMA_URL")
+    ollama_model: Optional[str] = Field(default="gpt-oss:120b-cloud", env="OLLAMA_MODEL")
+    ollama_embedding_model: Optional[str] = Field(default="embeddinggemma", env="OLLAMA_EMBEDDING_MODEL")
+    ollama_api_key: Optional[str] = Field(None, env="OLLAMA_API_KEY")
     
     # Telegram
     telegram_token: str = Field(..., env="TELEGRAM_TOKEN")
@@ -93,7 +111,7 @@ class Settings(BaseSettings):
     chroma_port: int = Field(default=8000, env="CHROMA_PORT")
     
     # RAG Configuration
-    rag_enabled: bool = Field(default=False, env="RAG_ENABLED")
+    rag_enabled: bool = Field(default=True, env="RAG_ENABLED")
     rag_chunk_size: int = Field(default=500, env="RAG_CHUNK_SIZE")
     rag_chunk_overlap: int = Field(default=50, env="RAG_CHUNK_OVERLAP")
     rag_top_k: int = Field(default=5, env="RAG_TOP_K")

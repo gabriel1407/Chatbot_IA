@@ -68,9 +68,9 @@ def initialize_dependencies():
     # RAG-related deps solo si está habilitado
     if getattr(settings, "rag_enabled", True):
         try:
-            # Servicio de embeddings (OpenAI)
-            from infrastructure.embeddings.openai_embedding_service import OpenAIEmbeddingService
-            embedding_service = OpenAIEmbeddingService()
+            # Servicio de embeddings (multi-proveedor: OpenAI, Gemini, Ollama)
+            from infrastructure.embeddings.ai_provider_embedding_service import AIProviderEmbeddingService
+            embedding_service = AIProviderEmbeddingService()
             DependencyContainer.register("EmbeddingService", embedding_service)
 
             # Vector Store (ChromaDB via HTTP)

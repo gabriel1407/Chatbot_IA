@@ -41,3 +41,6 @@ numpy<2.0.0
 chromadb==0.4.22
 langchain-text-splitters==0.2.0
 tiktoken==0.5.2
+
+google-genai
+ollama>=0.6.1

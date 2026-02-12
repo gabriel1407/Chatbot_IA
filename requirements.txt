@@ -54,7 +54,7 @@ google-cloud-firestore==2.20.2
 google-cloud-storage==3.1.0
 google-crc32c==1.7.1
 google-genai==1.16.1
-google-generativeai==0.8.5
+# google-generativeai==0.8.5  # DEPRECATED - usar google-genai arriba
 google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
 greenlet==3.2.4
@@ -102,6 +102,7 @@ msgpack==1.1.0
 multidict==6.4.4
 numpy==1.26.4
 oauthlib==3.3.1
+ollama>=0.6.1
 onnxruntime==1.23.2
 openai==1.82.0
 openapi-pydantic==0.5.1

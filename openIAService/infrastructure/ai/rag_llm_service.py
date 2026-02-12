@@ -116,27 +116,23 @@ Si la pregunta no se puede responder con la información disponible, indícalo c
             # 2. Construir prompt con contexto
             context_prompt = self.build_context_prompt(query, rag_results)
             
-            # 3. Llamar a OpenAI
-            from openai import OpenAI
-            client = OpenAI(api_key=settings.openai_api_key)
-            
+            # 3. Llamar al proveedor configurado (a través de la fábrica)
+            from core.ai.factory import get_ai_provider
+
+            provider = get_ai_provider()
             system_message = system_prompt or "Eres un asistente útil basado en la información de la base de conocimientos del usuario."
-            
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": context_prompt}
-                ],
-                temperature=temperature,
-                max_tokens=1000
-            )
-            
-            answer = response.choices[0].message.content
-            
+
+            messages = [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": context_prompt},
+            ]
+
+            # Delegar en provider; se asume que provider.generate_text admite 'messages' en kwargs
+            answer = provider.generate_text(prompt=context_prompt, messages=messages, temperature=temperature)
+
             # Log de la búsqueda
             self.logger.info(f"RAG+LLM response for user {user_id}: {len(rag_results)} chunks used, {len(answer)} chars response")
-            
+
             return answer
             
         except Exception as e:

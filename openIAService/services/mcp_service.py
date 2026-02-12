@@ -1,16 +1,16 @@
 import re
 from bs4 import BeautifulSoup
 import requests
-from openai import OpenAI
 from decouple import config
+from core.ai.factory import get_ai_provider
 from core.logging.logger import get_app_logger
 
 # Usar el nuevo sistema de logging centralizado
 logger = get_app_logger()
 
-OPENAI_API_KEY = config('OPENAI_API_KEY')
 SERPAPI_KEY = config('SERPAPI_KEY')  # Agrega esto a tu .env
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Proveedor configurable (OpenAI, Gemini, Ollama, ...)
+provider = get_ai_provider()
 
 def extract_text_from_url(url):
     try:
@@ -40,13 +40,8 @@ def link_reader_agent(url, question=None):
         {"role": "user", "content": f"Página leída: {url}\nContenido:\n{page_text}\n\nPregunta específica: {question or 'Resume el contenido.'}"}
     ]
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=context,
-            max_tokens=700,
-            temperature=0.7,
-        )
-        return response.choices[0].message.content.strip()
+        resp_text = provider.generate_text(prompt="", messages=context, max_tokens=700, temperature=0.7)
+        return resp_text.strip()
     except Exception as e:
         logger.error(f"[MCP][LinkReader] Error al generar respuesta con OpenAI: {e}")
         return "No se pudo generar un resumen de la página."
@@ -97,16 +92,11 @@ def chatgpt_agent(query, web_results):
         {"role": "user", "content": f"Consulta: {query}\n\nResultados web:\n{web_results}\n\nPor favor, responde de forma clara y concisa usando la mejor información disponible."}
     ]
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=context,
-            max_tokens=600,
-            temperature=0.7,
-        )
-        if response and response.choices:
+        resp_text = provider.generate_text(prompt="", messages=context, max_tokens=600, temperature=0.7)
+        if resp_text:
             logger.info("[MCP][ChatGPT] Respuesta generada correctamente.")
             logger.info("========== [MCP][ChatGPT][SALIDA] ==========")
-            return response.choices[0].message.content.strip()
+            return resp_text.strip()
         logger.warning("[MCP][ChatGPT] No se pudo generar una respuesta.")
         logger.info("========== [MCP][ChatGPT][SALIDA] ==========")
         return "No se pudo generar una respuesta."

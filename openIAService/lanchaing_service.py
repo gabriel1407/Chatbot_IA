@@ -4,7 +4,7 @@ import docx
 import pytesseract
 import speech_recognition as sr
 from flask import Flask, request, jsonify
-from openai import OpenAI
+from core.ai.factory import get_ai_provider
 from werkzeug.utils import secure_filename
 from pydub import AudioSegment
 import requests
@@ -21,9 +21,8 @@ from decouple import config
 
 app = Flask(__name__)
 
-# Configura la clave de API de OpenAI
-OPENAI_API_KEY = config('OPENAI_API_KEY')  # Reemplaza con tu clave API
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Instanciar proveedor IA configurado
+provider = get_ai_provider()
 
 conversational_contexts = {}
 
@@ -162,17 +161,10 @@ def generate_openai_response(prompt, context, language, initial_instructions=Non
     if language != 'en':
         message.insert(0, {"role": "system", "content": f"Por favor, responde en {language}."})
     
-    # Realiza la llamada a la API de OpenAI para obtener una respuesta
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=message,
-        max_tokens=600,
-        temperature=0.7,
-    )
-    
-    if response and response.choices:
-        completion = response.choices[0].message.content.strip()
-        return completion
+    # Realiza la llamada al proveedor configurado para obtener una respuesta
+    resp_text = provider.generate_text(prompt=prompt, messages=message, max_tokens=600, temperature=0.7)
+    if resp_text:
+        return resp_text.strip()
     return "No se pudo generar una respuesta."
 
 def generate_media(content, media_type):

@@ -71,10 +71,13 @@ class WhatsAppAdapter(ChannelAdapter):
     """Adapter para WhatsApp Business API."""
     
     def __init__(self):
-        from decouple import config
-        self.token = config('TOKEN_WHATSAPP')
-        self.api_url = "https://graph.facebook.com/v18.0/245533201976802/messages"
+        from core.config.settings import settings
+        from core.deduplication_cache import get_deduplication_cache
+        self.token = settings.whatsapp_token
+        self.api_url = settings.whatsapp_api_url
         self.logger = get_whatsapp_logger()
+        # Deduplicación: cache compartido entre workers usando SQLite
+        self._dedup_cache = get_deduplication_cache()
     
     def parse_incoming_message(self, raw_data: Dict[str, Any]) -> Optional[IncomingMessage]:
         """
@@ -96,14 +99,33 @@ class WhatsAppAdapter(ChannelAdapter):
                 return None
             
             changes = entry["changes"][0]
-            if "value" not in changes or "messages" not in changes["value"]:
+            value = changes.get("value", {})
+            
+            # Filtrar status updates (delivered, read, sent, etc.)
+            if "statuses" in value:
+                self.logger.debug("Ignorando status update de WhatsApp")
                 return None
             
-            messages = changes["value"]["messages"]
+            if "messages" not in value:
+                self.logger.debug("Webhook sin campo 'messages' - ignorando")
+                return None
+            
+            messages = value["messages"]
             if not messages:
                 return None
             
             message = messages[0]
+            
+            # Deduplicación: verificar message_id en cache compartido
+            message_id = message.get("id")
+            if message_id:
+                if self._dedup_cache.is_processed(message_id, "whatsapp"):
+                    self.logger.info(f"✓ Mensaje duplicado ignorado (cache compartido): {message_id}")
+                    return None
+                
+                # Marcar como procesado en cache compartido
+                self._dedup_cache.mark_processed(message_id, "whatsapp")
+                self.logger.debug(f"✓ Mensaje marcado como procesado: {message_id}")
             
             # Extraer datos básicos
             user_id = message.get("from", "")
@@ -243,9 +265,9 @@ class TelegramAdapter(ChannelAdapter):
     """Adapter para Telegram Bot API."""
     
     def __init__(self):
-        from decouple import config
-        self.token = config('TELEGRAM_TOKEN')
-        self.api_url = f"https://api.telegram.org/bot{self.token}"
+        from core.config.settings import settings
+        self.token = settings.telegram_token
+        self.api_url = settings.telegram_api_url
         self.logger = get_telegram_logger()
     
     def parse_incoming_message(self, raw_data: Dict[str, Any]) -> Optional[IncomingMessage]:
