@@ -5,9 +5,13 @@ from werkzeug.utils import secure_filename
 from core.logging.logger import get_app_logger
 from core.config.dependencies import DependencyContainer
 from core.exceptions.custom_exceptions import APIException
+from core.auth.jwt_middleware import require_jwt
 
 rag_bp = Blueprint("rag", __name__, url_prefix="/api/rag")
 logger = get_app_logger()
+
+# Proteger ingesta y gestión de documentos con JWT
+rag_bp.before_request(require_jwt)
 
 
 def _get_rag_service():

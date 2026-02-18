@@ -10,11 +10,17 @@ from application.dto.ai_requests import OllamaGenerationRequest
 from core.ai.factory import get_ai_provider
 from services.channel_adapters import get_unified_channel_service
 from core.exceptions.custom_exceptions import APIException
+from core.auth.jwt_middleware import require_jwt
 from core.logging.logger import get_app_logger
 
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/v2')
 logger = get_app_logger()
+
+# Proteger todos los endpoints con JWT (health_check queda excluido en el middleware)
+@admin_bp.before_request
+def auth_check():
+    return require_jwt()
 
 
 def build_success_response(*, data=None, message=None, status_code=200):

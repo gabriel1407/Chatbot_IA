@@ -65,6 +65,42 @@ def initialize_dependencies():
     from infrastructure.persistence.conversation_repository_factory import create_conversation_repository
     DependencyContainer.register("ConversationRepository", create_conversation_repository(settings.db_path))
 
+    # --- TenantConfigService (configuración del bot por cliente) ---
+    tenant_config_service = None
+    try:
+        from infrastructure.persistence.mysql_tenant_config_repository import MySQLTenantConfigRepository
+        from application.services.tenant_config_service import TenantConfigService
+
+        db_url = getattr(settings, "database_url", None)
+        if not db_url or not db_url.lower().startswith("mysql"):
+            logger.warning(
+                "TenantConfigService requiere MySQL (DATABASE_URL con mysql://). "
+                "Sin MySQL, el bot usará la configuración por defecto del código."
+            )
+        else:
+            tenant_repo = MySQLTenantConfigRepository(db_url)
+            tenant_config_service = TenantConfigService(tenant_repo)
+            DependencyContainer.register("TenantConfigService", tenant_config_service)
+            logger.info("TenantConfigService registrado correctamente")
+    except Exception as e:
+        logger.warning(f"TenantConfigService no inicializado (se usarán valores por defecto): {e}")
+
+    # --- AdminUserRepository + usuario admin inicial ---
+    try:
+        from infrastructure.persistence.mysql_admin_user_repository import AdminUserRepository
+
+        db_url = getattr(settings, "database_url", None)
+        if db_url and db_url.lower().startswith("mysql"):
+            admin_user_repo = AdminUserRepository(db_url)
+            default_pw = getattr(settings, "jwt_default_admin_password", "changeme123")
+            admin_user_repo.ensure_default_admin(default_pw)
+            DependencyContainer.register("AdminUserRepository", admin_user_repo)
+            logger.info("AdminUserRepository registrado correctamente")
+        else:
+            logger.warning("AdminUserRepository requiere MySQL. Autenticación JWT no disponible sin MySQL.")
+    except Exception as e:
+        logger.warning(f"AdminUserRepository no inicializado: {e}")
+
     # Handler de mensajes (application/use-cases + adapters)
     try:
         from infrastructure.persistence.topic_detection_service import TopicDetectionService
@@ -100,6 +136,7 @@ def initialize_dependencies():
             web_assist_port=WebAssistPortAdapter(),
             ai_provider_factory=AIProviderFactoryAdapter(),
             rag_search_port=RAGSearchPortAdapter(),
+            tenant_config_service=tenant_config_service,
         )
         DependencyContainer.register("ResponseGenerationUseCase", response_generation_use_case)
 

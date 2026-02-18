@@ -7,6 +7,8 @@ from routes.improved_routes import improved_bp
 from routes.admin_routes import admin_bp
 from routes.rag_routes import rag_bp
 from routes.chat_routes import chat_bp
+from routes.tenant_routes import tenant_bp
+from routes.auth_routes import auth_bp
 from core.config.settings import settings
 from services.context_cleanup_service import create_context_cleanup_service
 import logging
@@ -28,6 +30,8 @@ app.register_blueprint(improved_bp)  # Nueva arquitectura
 app.register_blueprint(admin_bp)  # Endpoints operativos v2
 app.register_blueprint(rag_bp)  # Endpoints RAG
 app.register_blueprint(chat_bp)  # Chat con RAG integrado
+app.register_blueprint(tenant_bp)  # Configuración de tenants (clientes)
+app.register_blueprint(auth_bp)  # Autenticación JWT
 
 # Inicializar dependencias al importar el módulo (útil para WSGI/Gunicorn)
 initialize_dependencies()

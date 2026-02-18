@@ -51,12 +51,64 @@ class ResponseGenerationUseCase:
         web_assist_port: WebAssistPort,
         ai_provider_factory: AIProviderFactoryPort,
         rag_search_port: RAGSearchPort,
+        tenant_config_service=None,   # TenantConfigService (opcional, inyectado)
     ):
         self.logger = get_application_logger()
         self.context_port = context_port
         self.web_assist_port = web_assist_port
         self.ai_provider_factory = ai_provider_factory
         self.rag_search_port = rag_search_port
+        self._tenant_config_service = tenant_config_service
+
+    # ------------------------------------------------------------------ #
+    # Helpers de configuración desde DB                                     #
+    # ------------------------------------------------------------------ #
+
+    def _get_system_prompt(self) -> str:
+        """Carga el system prompt del tenant desde la DB (con caché)."""
+        if self._tenant_config_service is None:
+            return (
+                "Eres un asistente útil. Responde de forma clara y concisa. "
+                f"{self.IDENTITY_POLICY}"
+            )
+        try:
+            from application.services.tenant_config_service import DEFAULT_TENANT_ID
+            config = self._tenant_config_service.get(DEFAULT_TENANT_ID)
+            return config.get_full_system_prompt()
+        except Exception as e:
+            self.logger.warning(f"[ResponseGeneration] Error cargando config de tenant: {e}")
+            return f"Eres un asistente útil. {self.IDENTITY_POLICY}"
+
+    def _get_rag_system_prompt(self) -> str:
+        """System prompt para respuestas con contexto RAG."""
+        if self._tenant_config_service is None:
+            return (
+                "Eres un asistente útil que responde basándote en la información proporcionada. "
+                "Si la pregunta no se puede responder con esa información, indícalo. "
+                f"{self.IDENTITY_POLICY}"
+            )
+        try:
+            from application.services.tenant_config_service import DEFAULT_TENANT_ID
+            config = self._tenant_config_service.get(DEFAULT_TENANT_ID)
+            return (
+                f"{config.get_full_system_prompt()}\n\n"
+                "Responde SOLO usando la información proporcionada como contexto. "
+                "Si la respuesta no se encuentra en el contexto, indícalo claramente."
+            )
+        except Exception as e:
+            self.logger.warning(f"[ResponseGeneration] Error cargando config RAG de tenant: {e}")
+            return f"Eres un asistente útil. {self.IDENTITY_POLICY}"
+
+    def _get_welcome_message(self) -> str:
+        """Mensaje de bienvenida del tenant desde la DB."""
+        if self._tenant_config_service is None:
+            return "Hola. Soy un asistente virtual de IA. ¿En qué puedo ayudarte?"
+        try:
+            from application.services.tenant_config_service import DEFAULT_TENANT_ID
+            config = self._tenant_config_service.get(DEFAULT_TENANT_ID)
+            return config.welcome_message
+        except Exception:
+            return "Hola. Soy un asistente virtual de IA. ¿En qué puedo ayudarte?"
 
     def search_rag_context(self, user_id: str, query: str, top_k: Optional[int] = None) -> Optional[List[dict]]:
         """Busca contexto en RAG de forma global."""
@@ -251,18 +303,13 @@ class ResponseGenerationUseCase:
             return False
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in self.GREETING_PATTERNS)
 
-    @staticmethod
-    def _build_greeting_response() -> str:
-        return "Hola. Soy un asistente virtual de IA. ¿En qué puedo ayudarte?"
+    def _build_greeting_response(self) -> str:
+        return self._get_welcome_message()
 
     def _generate_plain_ai_response(self, processed_msg: Any) -> str:
         try:
             provider = self.ai_provider_factory.get_provider()
-            system_prompt = (
-                "Eres un asistente útil. Responde de forma clara y concisa "
-                "basándote exclusivamente en el mensaje del usuario. "
-                f"{self.IDENTITY_POLICY}"
-            )
+            system_prompt = self._get_system_prompt()
 
             resp_text = provider.generate_text(
                 prompt=processed_msg.processed_content,
@@ -281,11 +328,7 @@ class ResponseGenerationUseCase:
     def _generate_plain_ai_response_with_trace(self, processed_msg: Any, include_thinking: bool = False) -> dict:
         try:
             provider = self.ai_provider_factory.get_provider()
-            system_prompt = (
-                "Eres un asistente útil. Responde de forma clara y concisa "
-                "basándote exclusivamente en el mensaje del usuario. "
-                f"{self.IDENTITY_POLICY}"
-            )
+            system_prompt = self._get_system_prompt()
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": processed_msg.processed_content},
@@ -320,10 +363,7 @@ class ResponseGenerationUseCase:
             provider = self.ai_provider_factory.get_provider()
             initial_instructions = {
                 "role": "system",
-                "content": (
-                    "Eres un asistente virtual diseñado para ayudar a los usuarios con una amplia variedad de preguntas y temas. "
-                    f"{self.IDENTITY_POLICY}"
-                )
+                "content": self._get_system_prompt(),
             }
 
             messages = [initial_instructions] + context + [{"role": "user", "content": prompt}]
@@ -351,8 +391,8 @@ class ResponseGenerationUseCase:
                 {
                     "role": "system",
                     "content": (
-                        "Eres un asistente visual experto en analizar y describir imágenes para humanos. "
-                        f"{self.IDENTITY_POLICY}"
+                        self._get_system_prompt() +
+                        " Además eres un asistente visual experto en analizar y describir imágenes."
                     ),
                 },
                 {
@@ -385,11 +425,7 @@ class ResponseGenerationUseCase:
                 sim = chunk.get("similarity", 0)
                 context_str += f"[{i}] (Relevancia: {sim:.0%}) {content[:200]}...\n\n"
 
-            system_prompt = (
-                "Eres un asistente útil que responde basándote en la información proporcionada. "
-                "Si la pregunta no se puede responder con esa información, indícalo. "
-                f"{self.IDENTITY_POLICY}"
-            )
+            system_prompt = self._get_rag_system_prompt()
             user_prompt = f"""{context_str}
 
 Pregunta: {processed_msg.processed_content}
@@ -423,11 +459,7 @@ Responde de forma concisa y relevante."""
                 sim = chunk.get("similarity", 0)
                 context_str += f"[{i}] (Relevancia: {sim:.0%}) {content[:200]}...\n\n"
 
-            system_prompt = (
-                "Eres un asistente útil que responde basándote en la información proporcionada. "
-                "Si la pregunta no se puede responder con esa información, indícalo. "
-                f"{self.IDENTITY_POLICY}"
-            )
+            system_prompt = self._get_rag_system_prompt()
             user_prompt = f"""{context_str}
 
 Pregunta: {processed_msg.processed_content}

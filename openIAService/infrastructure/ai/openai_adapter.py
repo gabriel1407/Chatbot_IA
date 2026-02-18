@@ -11,7 +11,13 @@ from core.config.settings import settings
 class OpenAIAdapter(AIProvider):
     def __init__(self, settings_obj=None):
         self.settings = settings_obj or settings
-        self.client = OpenAI(api_key=self.settings.openai_api_key)
+        api_key = self.settings.openai_api_key
+        if not api_key:
+            raise ValueError(
+                "OPENAI_API_KEY no configurada. "
+                "Configúrala en .env o cambia AI_PROVIDER a 'gemini' u 'ollama'."
+            )
+        self.client = OpenAI(api_key=api_key)
 
     def generate_text(self, prompt: str, **kwargs) -> str:
         """Genera texto usando la API de OpenAI v1+ con ChatCompletion."""

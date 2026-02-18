@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     port: int = 8082
     
     # OpenAI
-    openai_api_key: str = Field(..., env="OPENAI_API_KEY")
+    openai_api_key: Optional[str] = Field(None, env="OPENAI_API_KEY")  # Opcional si usas Gemini u Ollama
     openai_model: str = "gpt-4o-mini"
     openai_vision_model: str = "gpt-4o"
     openai_embedding_model: str = "text-embedding-3-small"
@@ -106,6 +106,22 @@ class Settings(BaseSettings):
     
     # SerpAPI (búsqueda web)
     serpapi_key: Optional[str] = Field(None, env="SERPAPI_KEY")
+
+    # Admin API Key (legacy, mantenida por compatibilidad)
+    admin_api_key: Optional[str] = Field(None, env="ADMIN_API_KEY")
+
+    # JWT Authentication
+    # Si JWT_SECRET_KEY no está definida, se usa el SECRET_KEY de Flask como fallback
+    jwt_secret_key: Optional[str] = Field(default=None, env="JWT_SECRET_KEY")
+    jwt_access_token_ttl_minutes: int = Field(default=30, env="JWT_ACCESS_TOKEN_TTL_MINUTES")
+    jwt_refresh_token_ttl_days: int = Field(default=7, env="JWT_REFRESH_TOKEN_TTL_DAYS")
+    # Contraseña del admin inicial (si no hay ningún usuario en DB)
+    jwt_default_admin_password: str = Field(default="changeme123", env="JWT_DEFAULT_ADMIN_PASSWORD")
+
+    @property
+    def effective_jwt_secret(self) -> str:
+        """JWT secret efectivo: JWT_SECRET_KEY o fallback a SECRET_KEY."""
+        return self.jwt_secret_key or self.secret_key
     
     # Rutas
     upload_folder: str = "local/uploads"
