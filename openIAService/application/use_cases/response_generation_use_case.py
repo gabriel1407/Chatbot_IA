@@ -31,6 +31,20 @@ class RAGSearchPort(Protocol):
 class ResponseGenerationUseCase:
     """Caso de uso para generar respuestas del asistente."""
 
+    IDENTITY_POLICY = (
+        "Regla de identidad obligatoria: eres un asistente virtual de IA. "
+        "Nunca afirmes ser una persona real, desarrollador, empleado o usuario específico. "
+        "Si te preguntan quién eres, responde que eres un asistente virtual."
+    )
+
+    GREETING_PATTERNS = [
+        r'^hola\b',
+        r'^buenas\b',
+        r'^hello\b',
+        r'^hi\b',
+        r'^hey\b',
+    ]
+
     def __init__(
         self,
         context_port: ContextPort,
@@ -66,6 +80,9 @@ class ResponseGenerationUseCase:
     ) -> str:
         """Genera respuesta del asistente según configuración y contexto."""
         try:
+            if self._is_simple_greeting(processed_msg.processed_content):
+                return self._build_greeting_response()
+
             if not rag_enabled:
                 return self.generate_legacy_response(user_id, processed_msg, context_id=context_id)
 
@@ -89,6 +106,9 @@ class ResponseGenerationUseCase:
     ) -> dict:
         """Genera respuesta y, opcionalmente, retorna traza de thinking si el proveedor la soporta."""
         try:
+            if self._is_simple_greeting(processed_msg.processed_content):
+                return {"content": self._build_greeting_response(), "thinking": ""}
+
             if not rag_enabled:
                 return self.generate_legacy_response_with_trace(
                     user_id=user_id,
@@ -225,12 +245,23 @@ class ResponseGenerationUseCase:
             self.logger.error(f"Error al clasificar intención web/model: {e}")
             return False
 
+    def _is_simple_greeting(self, user_text: Optional[str]) -> bool:
+        text = (user_text or "").lower().strip()
+        if not text:
+            return False
+        return any(re.search(pattern, text, re.IGNORECASE) for pattern in self.GREETING_PATTERNS)
+
+    @staticmethod
+    def _build_greeting_response() -> str:
+        return "Hola. Soy un asistente virtual de IA. ¿En qué puedo ayudarte?"
+
     def _generate_plain_ai_response(self, processed_msg: Any) -> str:
         try:
             provider = self.ai_provider_factory.get_provider()
             system_prompt = (
                 "Eres un asistente útil. Responde de forma clara y concisa "
-                "basándote exclusivamente en el mensaje del usuario."
+                "basándote exclusivamente en el mensaje del usuario. "
+                f"{self.IDENTITY_POLICY}"
             )
 
             resp_text = provider.generate_text(
@@ -252,7 +283,8 @@ class ResponseGenerationUseCase:
             provider = self.ai_provider_factory.get_provider()
             system_prompt = (
                 "Eres un asistente útil. Responde de forma clara y concisa "
-                "basándote exclusivamente en el mensaje del usuario."
+                "basándote exclusivamente en el mensaje del usuario. "
+                f"{self.IDENTITY_POLICY}"
             )
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -288,7 +320,10 @@ class ResponseGenerationUseCase:
             provider = self.ai_provider_factory.get_provider()
             initial_instructions = {
                 "role": "system",
-                "content": "Eres un asistente virtual diseñado para ayudar a los usuarios con una amplia variedad de preguntas y temas."
+                "content": (
+                    "Eres un asistente virtual diseñado para ayudar a los usuarios con una amplia variedad de preguntas y temas. "
+                    f"{self.IDENTITY_POLICY}"
+                )
             }
 
             messages = [initial_instructions] + context + [{"role": "user", "content": prompt}]
@@ -313,7 +348,13 @@ class ResponseGenerationUseCase:
                 base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
             messages = [
-                {"role": "system", "content": "Eres un asistente visual experto en analizar y describir imágenes para humanos."},
+                {
+                    "role": "system",
+                    "content": (
+                        "Eres un asistente visual experto en analizar y describir imágenes para humanos. "
+                        f"{self.IDENTITY_POLICY}"
+                    ),
+                },
                 {
                     "role": "user",
                     "content": [
@@ -344,7 +385,11 @@ class ResponseGenerationUseCase:
                 sim = chunk.get("similarity", 0)
                 context_str += f"[{i}] (Relevancia: {sim:.0%}) {content[:200]}...\n\n"
 
-            system_prompt = "Eres un asistente útil que responde basándote en la información proporcionada. Si la pregunta no se puede responder con esa información, indícalo."
+            system_prompt = (
+                "Eres un asistente útil que responde basándote en la información proporcionada. "
+                "Si la pregunta no se puede responder con esa información, indícalo. "
+                f"{self.IDENTITY_POLICY}"
+            )
             user_prompt = f"""{context_str}
 
 Pregunta: {processed_msg.processed_content}
@@ -378,7 +423,11 @@ Responde de forma concisa y relevante."""
                 sim = chunk.get("similarity", 0)
                 context_str += f"[{i}] (Relevancia: {sim:.0%}) {content[:200]}...\n\n"
 
-            system_prompt = "Eres un asistente útil que responde basándote en la información proporcionada. Si la pregunta no se puede responder con esa información, indícalo."
+            system_prompt = (
+                "Eres un asistente útil que responde basándote en la información proporcionada. "
+                "Si la pregunta no se puede responder con esa información, indícalo. "
+                f"{self.IDENTITY_POLICY}"
+            )
             user_prompt = f"""{context_str}
 
 Pregunta: {processed_msg.processed_content}

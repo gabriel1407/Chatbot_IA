@@ -33,6 +33,8 @@ lxml==5.4.0
 pydantic==2.10.6
 pydantic-settings>=2.5.2,<3.0.0
 pydantic-core==2.27.2
+SQLAlchemy==2.0.44
+PyMySQL==1.1.2
 typing-extensions==4.13.2
 
 # RAG / Vector store

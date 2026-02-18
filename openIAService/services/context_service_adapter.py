@@ -6,10 +6,8 @@ from typing import Optional, List
 from datetime import datetime
 
 # Importar la nueva arquitectura
-from infrastructure.persistence.sqlite_conversation_repository import (
-    SQLiteConversationRepository, 
-    TopicDetectionService
-)
+from infrastructure.persistence.conversation_repository_factory import create_conversation_repository
+from infrastructure.persistence.topic_detection_service import TopicDetectionService
 from application.use_cases.context_use_cases import (
     RetrieveContextUseCase,
     SaveContextUseCase,
@@ -32,7 +30,7 @@ class ContextServiceAdapter:
         self.logger = get_application_logger()
         
         # Inicializar componentes de la nueva arquitectura
-        self.conversation_repository = SQLiteConversationRepository(db_path)
+        self.conversation_repository = create_conversation_repository(db_path=db_path)
         self.topic_detection_service = TopicDetectionService()
         
         # Inicializar casos de uso

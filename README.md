@@ -399,7 +399,7 @@ Rendimiento y límites de recursos
 ### 📦 **Stack Tecnológico**
 - **Python 3.12+**
 - **Flask** + **Gunicorn** - Framework web y WSGI server
-- **SQLite** - Base de datos (contexto conversacional)
+- **SQLite / MySQL** - Base de datos (contexto conversacional)
 - **ChromaDB** - Vector DB (RAG)
 - **Proveedores de IA**:
   - **OpenAI API** (gpt-4o, gpt-4o-mini)
@@ -430,7 +430,7 @@ openIAService/
 │   │   └── ollama_adapter.py
 │   ├── embeddings/            # Servicio de embeddings multi-proveedor
 │   ├── vector_store/          # ChromaDB repository
-│   ├── persistence/           # SQLite repository
+│   ├── persistence/           # Repositories SQL (SQLite/MySQL)
 │   ├── messaging/             # WhatsApp, Telegram adapters
 │   └── web_search/            # SerpAPI integration
 │
@@ -457,7 +457,7 @@ openIAService/
 ```
 
 ### 🔄 **Patrones de Diseño Implementados**
-- **Repository Pattern** - Abstracción de datos (SQLite, ChromaDB)
+- **Repository Pattern** - Abstracción de datos (SQLite/MySQL, ChromaDB)
 - **Factory Pattern** - Creación de proveedores IA (`get_ai_provider()`)
 - **Strategy Pattern** - Algoritmos intercambiables (limpieza, procesamiento)
 - **Adapter Pattern** - Unificación de interfaces (OpenAI, Gemini, Ollama)

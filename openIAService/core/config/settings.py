@@ -110,6 +110,7 @@ class Settings(BaseSettings):
     # Rutas
     upload_folder: str = "local/uploads"
     db_path: str = "local/contextos.db"
+    database_url: Optional[str] = Field(default=None, env="DATABASE_URL")
     vector_store_path: str = "local/vector_store"
     chroma_host: str = Field(default="chroma", env="CHROMA_HOST")
     chroma_port: int = Field(default=8000, env="CHROMA_PORT")

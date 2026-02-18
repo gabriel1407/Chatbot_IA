@@ -433,13 +433,11 @@ def create_message_handler() -> ImprovedMessageHandler:
     except Exception:
         pass
 
-    from infrastructure.persistence.sqlite_conversation_repository import (
-        SQLiteConversationRepository,
-        TopicDetectionService
-    )
+    from infrastructure.persistence.conversation_repository_factory import create_conversation_repository
+    from infrastructure.persistence.topic_detection_service import TopicDetectionService
     
     # Crear repositorio
-    conversation_repository = SQLiteConversationRepository()
+    conversation_repository = create_conversation_repository()
     topic_detection_service = TopicDetectionService()
     
     # Crear casos de uso

@@ -7,7 +7,7 @@ from typing import Optional, List
 from domain.entities.conversation import Conversation
 from domain.entities.message import Message, MessageRole
 from domain.repositories.conversation_repository import ConversationRepository
-from infrastructure.persistence.sqlite_conversation_repository import TopicDetectionService
+from infrastructure.persistence.topic_detection_service import TopicDetectionService
 from core.logging.logger import get_application_logger
 
 

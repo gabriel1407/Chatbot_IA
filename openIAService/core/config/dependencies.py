@@ -61,13 +61,13 @@ def initialize_dependencies():
     """
     logger.info("Inicializando dependencias...")
 
-    # Repositorio de conversaciones (SQLite)
-    from infrastructure.persistence.sqlite_conversation_repository import SQLiteConversationRepository
-    DependencyContainer.register("ConversationRepository", SQLiteConversationRepository(settings.db_path))
+    # Repositorio de conversaciones (SQLite/MySQL por configuración)
+    from infrastructure.persistence.conversation_repository_factory import create_conversation_repository
+    DependencyContainer.register("ConversationRepository", create_conversation_repository(settings.db_path))
 
     # Handler de mensajes (application/use-cases + adapters)
     try:
-        from infrastructure.persistence.sqlite_conversation_repository import TopicDetectionService
+        from infrastructure.persistence.topic_detection_service import TopicDetectionService
         from application.use_cases.context_use_cases import (
             RetrieveContextUseCase,
             SaveContextUseCase,
