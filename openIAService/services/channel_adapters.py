@@ -29,6 +29,7 @@ class IncomingMessage:
     channel: ChannelType
     metadata: Dict[str, Any]
     raw_message: Dict[str, Any]
+    tenant_id: str = "default"
 
 
 @dataclass
@@ -435,13 +436,14 @@ class UnifiedChannelService:
         }
         self.logger = get_whatsapp_logger()  # Logger general
     
-    def process_webhook(self, channel: ChannelType, raw_data: Dict[str, Any]) -> bool:
+    def process_webhook(self, channel: ChannelType, raw_data: Dict[str, Any], tenant_id: str = "default") -> bool:
         """
         Procesa un webhook de cualquier canal.
         
         Args:
             channel: Tipo de canal
             raw_data: Datos crudos del webhook
+            tenant_id: ID del tenant para aislamiento RAG (default: "default")
             
         Returns:
             True si se procesó exitosamente
@@ -462,6 +464,9 @@ class UnifiedChannelService:
 
                 self.logger.warning(f"No se pudo parsear mensaje de {channel.value}")
                 return False
+
+            # Propagar tenant_id al mensaje entrante
+            incoming_message.tenant_id = tenant_id
             
             # Descargar archivos multimedia si es necesario
             if incoming_message.message_type != MessageType.TEXT:
@@ -485,6 +490,7 @@ class UnifiedChannelService:
                 message_type=incoming_message.message_type,
                 metadata=incoming_message.metadata,
                 include_thinking=thinking_enabled,
+                tenant_id=incoming_message.tenant_id,
             )
 
             emitter = self._build_response_emitter(

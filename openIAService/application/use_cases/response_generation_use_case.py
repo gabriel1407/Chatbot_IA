@@ -25,7 +25,7 @@ class AIProviderFactoryPort(Protocol):
 
 
 class RAGSearchPort(Protocol):
-    def search(self, query: str, top_k: Optional[int] = None) -> Optional[List[dict]]: ...
+    def search(self, query: str, tenant_id: str = "default", top_k: Optional[int] = None) -> Optional[List[dict]]: ...
 
 
 class ResponseGenerationUseCase:
@@ -91,16 +91,33 @@ class ResponseGenerationUseCase:
             self.logger.warning(f"[ResponseGeneration] Error cargando config RAG de tenant: {e}")
             return f"Eres un asistente útil. {self.IDENTITY_POLICY}"
 
-    def search_rag_context(self, user_id: str, query: str, top_k: Optional[int] = None) -> Optional[List[dict]]:
-        """Busca contexto en RAG de forma global."""
+    def search_rag_context(
+        self,
+        user_id: str,
+        query: str,
+        tenant_id: str = "default",
+        top_k: Optional[int] = None,
+    ) -> Optional[List[dict]]:
+        """
+        Busca contexto en RAG del tenant especificado.
+
+        Args:
+            user_id: ID del usuario (para logging)
+            query: Texto de la consulta
+            tenant_id: ID del tenant para aislamiento
+            top_k: Número máximo de resultados
+
+        Returns:
+            Lista de chunks con contexto relevante, o None si no hay resultados
+        """
         try:
-            results = self.rag_search_port.search(query=query, top_k=top_k)
+            results = self.rag_search_port.search(query=query, tenant_id=tenant_id, top_k=top_k)
             if results:
-                self.logger.info(f"RAG: {len(results)} chunks encontrados para usuario {user_id}")
+                self.logger.info(f"RAG: {len(results)} chunks encontrados para usuario {user_id} en tenant {tenant_id}")
                 return results
             return None
         except Exception as e:
-            self.logger.warning(f"Error buscando en RAG: {e}")
+            self.logger.warning(f"Error buscando en RAG para tenant {tenant_id}: {e}")
             return None
 
     def generate_ai_response(

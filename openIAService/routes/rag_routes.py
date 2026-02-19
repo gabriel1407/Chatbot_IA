@@ -1,3 +1,6 @@
+"""
+Rutas RAG - Endpoints para ingestión y búsqueda de documentos con aislamiento multi-tenant.
+"""
 from flask import Blueprint, request, jsonify
 import os
 import uuid
@@ -10,21 +13,57 @@ from core.auth.jwt_middleware import require_jwt
 rag_bp = Blueprint("rag", __name__, url_prefix="/api/rag")
 logger = get_app_logger()
 
-# Solo rutas de escritura requieren JWT. La búsqueda (GET /search) es interna y no la proteges.
+# Endpoints de escritura requieren JWT
 _WRITE_ENDPOINTS = {"rag.ingest_text", "rag.ingest_file", "rag.delete_document"}
+
 
 @rag_bp.before_request
 def auth_check():
+    """Verifica JWT solo para endpoints de escritura."""
     if request.endpoint in _WRITE_ENDPOINTS:
         return require_jwt()
-    return None  # GET /search y otros ópticos pasan sin auth
+    return None
 
 
 def _get_rag_service():
+    """Obtiene el servicio RAG del contenedor de dependencias."""
     return DependencyContainer.get("RAGService")
 
 
-# Carpeta de subidas (coherente con otros módulos)
+def _get_tenant_id_from_request() -> str:
+    """
+    Extrae tenant_id del request.
+
+    Orden de precedencia:
+    1. Header X-Tenant-ID
+    2. Form-data tenant_id
+    3. Query param tenant_id
+
+    Raises:
+        APIException: Si no se encuentra tenant_id
+    """
+    # 1. Header
+    tenant_id = request.headers.get("X-Tenant-ID")
+
+    # 2. Form-data
+    if not tenant_id and request.form:
+        tenant_id = request.form.get("tenant_id")
+
+    # 3. Query params
+    if not tenant_id:
+        tenant_id = request.args.get("tenant_id")
+
+    if not tenant_id:
+        raise APIException(
+            message="tenant_id es requerido. Proporciónalo en header X-Tenant-ID, form-data o query param.",
+            status_code=400,
+            code="MISSING_TENANT_ID",
+        )
+
+    return tenant_id
+
+
+# Carpeta de subidas
 UPLOAD_FOLDER = os.path.join('local', 'uploads')
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -33,40 +72,65 @@ if not os.path.exists(UPLOAD_FOLDER):
 @rag_bp.route("/ingest", methods=["POST"])
 def ingest_text():
     """
-    Ingesta texto directo al RAG como form-data.
+    Ingesta texto directo al RAG del tenant.
+
     Form-data esperado:
-    - user_id: identificador de usuario/cliente (requerido)
+    - tenant_id: ID del tenant (REQUERIDO para aislamiento)
     - text: contenido de texto a indexar (requerido)
-    - title: (opcional)
+    - user_id: identificador de usuario (opcional)
+    - title: título del documento (opcional)
+
+    Headers alternativos:
+    - X-Tenant-ID: ID del tenant
     """
-    user_id = request.form.get("user_id")
+    tenant_id = _get_tenant_id_from_request()
     text = request.form.get("text")
+    user_id = request.form.get("user_id")
     title = request.form.get("title")
     document_id = str(uuid.uuid4())
 
-    if not user_id or not text:
+    if not text:
         raise APIException(
-            message="user_id y text son requeridos",
+            message="text es requerido",
             status_code=400,
             code="VALIDATION_ERROR",
         )
 
     rag = _get_rag_service()
-    count = rag.ingest_text(user_id=user_id, document_id=document_id, text=text, title=title)
-    return jsonify({"ok": True, "document_id": document_id, "chunks_indexed": count}), 200
+    count = rag.ingest_text(
+        tenant_id=tenant_id,
+        document_id=document_id,
+        text=text,
+        user_id=user_id,
+        title=title,
+    )
+
+    return jsonify({
+        "ok": True,
+        "document_id": document_id,
+        "tenant_id": tenant_id,
+        "chunks_indexed": count,
+    }), 200
 
 
 @rag_bp.route("/ingest/file", methods=["POST"])
 def ingest_file():
     """
-    Ingresa un archivo (PDF/DOCX/TXT) al RAG.
+    Ingiere un archivo (PDF/DOCX/TXT) al RAG del tenant.
+
     Form-data esperado:
-    - file: archivo
-    - user_id: identificador de usuario/cliente (requerido)
-    - title: (opcional)
-    
-    Genera automáticamente un document_id único (UUID).
+    - file: archivo (requerido)
+    - tenant_id: ID del tenant (REQUERIDO para aislamiento)
+    - user_id: identificador de usuario (opcional)
+    - title: título del documento (opcional)
+
+    Headers alternativos:
+    - X-Tenant-ID: ID del tenant
     """
+    tenant_id = _get_tenant_id_from_request()
+    user_id = request.form.get('user_id')
+    title = request.form.get('title')
+
     if 'file' not in request.files:
         raise APIException(
             message="Falta el campo 'file' en form-data",
@@ -75,15 +139,6 @@ def ingest_file():
         )
 
     file = request.files['file']
-    user_id = request.form.get('user_id')
-    title = request.form.get('title')
-
-    if not user_id:
-        raise APIException(
-            message="user_id es requerido",
-            status_code=400,
-            code="VALIDATION_ERROR",
-        )
 
     if not file or file.filename == '':
         raise APIException(
@@ -98,8 +153,10 @@ def ingest_file():
     file_path = os.path.join(UPLOAD_FOLDER, filename)
     file.save(file_path)
 
+    # Extraer texto según extensión
     ext = os.path.splitext(filename)[1].lower()
     text = None
+
     if ext == ".pdf":
         from services.files_processing_service import process_pdf as _proc
         text = _proc(file_path)
@@ -124,27 +181,40 @@ def ingest_file():
         )
 
     rag = _get_rag_service()
-    count = rag.ingest_text(user_id=user_id, document_id=document_id, text=text, title=title)
+    count = rag.ingest_text(
+        tenant_id=tenant_id,
+        document_id=document_id,
+        text=text,
+        user_id=user_id,
+        title=title or filename,
+    )
 
     return jsonify({
         "ok": True,
         "document_id": document_id,
+        "tenant_id": tenant_id,
         "filename": filename,
-        "chunks_indexed": count
+        "chunks_indexed": count,
     }), 200
 
 
 @rag_bp.route("/search", methods=["GET"])
 def search():
     """
-    Busca en el RAG.
-    
+    Busca en el RAG del tenant.
+
     Query params:
     - query: texto a buscar (requerido)
-    - user_id: filtrar por usuario (opcional, busca globalmente si no se proporciona)
+    - tenant_id: ID del tenant (REQUERIDO para aislamiento)
+    - user_id: filtrar por usuario dentro del tenant (opcional)
     - top_k: número de resultados (opcional)
+    - min_similarity: similitud mínima (opcional)
+
+    Headers alternativos:
+    - X-Tenant-ID: ID del tenant
     """
     query_text = request.args.get("query")
+    tenant_id = _get_tenant_id_from_request()
     user_id = request.args.get("user_id")
     top_k = request.args.get("top_k", type=int)
     min_similarity = request.args.get("min_similarity", type=float)
@@ -165,7 +235,14 @@ def search():
         )
 
     rag = _get_rag_service()
-    results = rag.retrieve(query_text=query_text, top_k=top_k, user_id=user_id, min_similarity=min_similarity)
+    results = rag.retrieve(
+        query_text=query_text,
+        tenant_id=tenant_id,
+        top_k=top_k,
+        user_id=user_id,
+        min_similarity=min_similarity,
+    )
+
     payload = [
         {
             "document_id": c.document_id,
@@ -176,11 +253,65 @@ def search():
         }
         for c, score in results
     ]
-    return jsonify({"ok": True, "results": payload})
+
+    return jsonify({
+        "ok": True,
+        "tenant_id": tenant_id,
+        "results": payload,
+    })
 
 
 @rag_bp.route("/documents/<doc_id>", methods=["DELETE"])
 def delete_document(doc_id: str):
+    """
+    Elimina un documento del RAG del tenant.
+
+    Query params:
+    - tenant_id: ID del tenant (REQUERIDO)
+
+    Headers alternativos:
+    - X-Tenant-ID: ID del tenant
+    """
+    tenant_id = _get_tenant_id_from_request()
+
     rag = _get_rag_service()
-    ok = rag.delete_document(doc_id)
-    return jsonify({"ok": ok})
+    ok = rag.delete_document(doc_id, tenant_id=tenant_id)
+
+    return jsonify({
+        "ok": ok,
+        "document_id": doc_id,
+        "tenant_id": tenant_id,
+    })
+
+
+@rag_bp.route("/stats", methods=["GET"])
+def stats():
+    """
+    Obtiene estadísticas del RAG del tenant.
+
+    Query params:
+    - tenant_id: ID del tenant (REQUERIDO)
+    - user_id: filtrar por usuario (opcional)
+
+    Headers alternativos:
+    - X-Tenant-ID: ID del tenant
+    """
+    tenant_id = _get_tenant_id_from_request()
+    user_id = request.args.get("user_id")
+
+    from core.config.settings import settings
+    if not settings.rag_enabled:
+        raise APIException(
+            message="RAG está deshabilitado por configuración",
+            status_code=503,
+            code="RAG_DISABLED",
+        )
+
+    rag = _get_rag_service()
+    count = rag.count_chunks(tenant_id=tenant_id, user_id=user_id)
+
+    return jsonify({
+        "ok": True,
+        "tenant_id": tenant_id,
+        "total_chunks": count,
+    })

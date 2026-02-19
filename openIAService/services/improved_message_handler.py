@@ -295,19 +295,21 @@ class ImprovedMessageHandler:
         content: str,
         message_type: MessageType = MessageType.TEXT,
         metadata: Optional[Dict[str, Any]] = None,
-        context_id: Optional[str] = None
+        context_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> str:
         """
         Maneja un mensaje de usuario de forma integral.
-        Automáticamente busca en RAG si hay documentos para este usuario.
-        
+        Automáticamente busca en RAG si hay documentos para este usuario/tenant.
+
         Args:
             user_id: ID del usuario
             content: Contenido del mensaje
             message_type: Tipo de mensaje
             metadata: Metadatos adicionales
             context_id: ID del contexto (opcional)
-            
+            tenant_id: ID del tenant para aislamiento RAG (opcional, default: "default")
+
         Returns:
             Respuesta generada
         """
@@ -318,6 +320,7 @@ class ImprovedMessageHandler:
             metadata=metadata,
             context_id=context_id,
             include_thinking=False,
+            tenant_id=tenant_id,
         )
         return traced.get("content", "Lo siento, ocurrió un error procesando tu mensaje. Por favor intenta de nuevo.")
 
@@ -329,8 +332,20 @@ class ImprovedMessageHandler:
         metadata: Optional[Dict[str, Any]] = None,
         context_id: Optional[str] = None,
         include_thinking: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Maneja mensaje de usuario y retorna contenido + thinking (opcional)."""
+        """
+        Maneja mensaje de usuario y retorna contenido + thinking (opcional).
+
+        Args:
+            user_id: ID del usuario
+            content: Contenido del mensaje
+            message_type: Tipo de mensaje
+            metadata: Metadatos adicionales
+            context_id: ID del contexto (opcional)
+            include_thinking: Si incluir traza de thinking del modelo
+            tenant_id: ID del tenant para aislamiento RAG (opcional)
+        """
         try:
             self.logger.info(f"Procesando mensaje de usuario {user_id}: {message_type.value}")
 
@@ -364,6 +379,7 @@ class ImprovedMessageHandler:
                     rag_context = self.response_generation_use_case.search_rag_context(
                         user_id,
                         processed_msg.processed_content,
+                        tenant_id=tenant_id or "default",
                     )
 
                 traced = self.response_generation_use_case.generate_ai_response_with_trace(

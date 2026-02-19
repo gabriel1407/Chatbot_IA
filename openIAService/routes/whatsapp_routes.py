@@ -36,8 +36,11 @@ def received_message():
         
         unified_service = get_unified_channel_service()
 
+        # Extraer tenant_id del header o query param
+        tenant_id = request.headers.get("X-Tenant-ID") or request.args.get("tenant_id") or "default"
+
         # Usar el servicio unificado para procesar (incluye búsqueda RAG)
-        success = unified_service.process_webhook(ChannelType.WHATSAPP, body)
+        success = unified_service.process_webhook(ChannelType.WHATSAPP, body, tenant_id=tenant_id)
         
         if success:
             logger.info("Webhook de WhatsApp procesado exitosamente")

@@ -1,15 +1,18 @@
 """
 Adapters de infraestructura para ResponseGenerationUseCase.
 Mantiene detalles técnicos fuera de la capa application.
+Soporta aislamiento multi-tenant en RAG.
 """
 from typing import Optional, List
-
-import requests
 
 from core.ai.factory import get_ai_provider
 from core.config.settings import settings
 from services.context_service_adapter import load_context, save_context
 from services.mcp_service import extract_url_from_message, link_reader_agent, mcp_pipeline
+
+
+# Default tenant ID para compatibilidad cuando no se especifica uno
+DEFAULT_TENANT_ID = "default"
 
 
 class ContextPortAdapter:
@@ -37,23 +40,46 @@ class AIProviderFactoryAdapter:
 
 
 class RAGSearchPortAdapter:
-    """Adapter de búsqueda RAG global — llama directamente al servicio interno."""
+    """
+    Adapter de búsqueda RAG con soporte multi-tenant.
+    Busca en la colección del tenant especificado.
+    """
 
-    def search(self, query: str, top_k: Optional[int] = None) -> Optional[List[dict]]:
+    def search(
+        self,
+        query: str,
+        tenant_id: str = DEFAULT_TENANT_ID,
+        top_k: Optional[int] = None,
+    ) -> Optional[List[dict]]:
+        """
+        Busca en el RAG del tenant especificado.
+
+        Args:
+            query: Texto de la consulta
+            tenant_id: ID del tenant (default: "default" para compatibilidad)
+            top_k: Número máximo de resultados
+
+        Returns:
+            Lista de chunks con su similitud, o None si no hay resultados
+        """
         if not settings.rag_enabled:
             return None
+
         try:
-            # Llamada directa al servicio Python en lugar de HTTP para evitar overhead
-            # y problemas de autenticación en llamadas internas.
+            # Llamada directa al servicio Python
             from core.config.dependencies import DependencyContainer
             rag_service = DependencyContainer.get("RAGService")
+
             results = rag_service.retrieve(
                 query_text=query,
+                tenant_id=tenant_id,
                 top_k=top_k or getattr(settings, "rag_chat_top_k", None) or settings.rag_top_k,
-                min_similarity=settings.rag_global_min_similarity,
+                min_similarity=settings.rag_min_similarity,
             )
+
             if not results:
                 return None
+
             return [
                 {
                     "document_id": chunk.document_id,
@@ -66,5 +92,21 @@ class RAGSearchPortAdapter:
             ]
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(f"[RAGSearchPortAdapter] Error buscando en RAG: {e}")
+            logging.getLogger(__name__).warning(
+                f"[RAGSearchPortAdapter] Error buscando en RAG para tenant {tenant_id}: {e}"
+            )
             return None
+
+    def search_with_fallback(
+        self,
+        query: str,
+        tenant_id: Optional[str] = None,
+        top_k: Optional[int] = None,
+    ) -> Optional[List[dict]]:
+        """
+        Busca en RAG con fallback a tenant default si no se especifica.
+
+        Útil durante la transición a multi-tenant.
+        """
+        effective_tenant_id = tenant_id or DEFAULT_TENANT_ID
+        return self.search(query=query, tenant_id=effective_tenant_id, top_k=top_k)
