@@ -37,14 +37,6 @@ class ResponseGenerationUseCase:
         "Si te preguntan quién eres, responde que eres un asistente virtual."
     )
 
-    GREETING_PATTERNS = [
-        r'^hola\b',
-        r'^buenas\b',
-        r'^hello\b',
-        r'^hi\b',
-        r'^hey\b',
-    ]
-
     def __init__(
         self,
         context_port: ContextPort,
@@ -99,17 +91,6 @@ class ResponseGenerationUseCase:
             self.logger.warning(f"[ResponseGeneration] Error cargando config RAG de tenant: {e}")
             return f"Eres un asistente útil. {self.IDENTITY_POLICY}"
 
-    def _get_welcome_message(self) -> str:
-        """Mensaje de bienvenida del tenant desde la DB."""
-        if self._tenant_config_service is None:
-            return "Hola. Soy un asistente virtual de IA. ¿En qué puedo ayudarte?"
-        try:
-            from application.services.tenant_config_service import DEFAULT_TENANT_ID
-            config = self._tenant_config_service.get(DEFAULT_TENANT_ID)
-            return config.welcome_message
-        except Exception:
-            return "Hola. Soy un asistente virtual de IA. ¿En qué puedo ayudarte?"
-
     def search_rag_context(self, user_id: str, query: str, top_k: Optional[int] = None) -> Optional[List[dict]]:
         """Busca contexto en RAG de forma global."""
         try:
@@ -132,9 +113,6 @@ class ResponseGenerationUseCase:
     ) -> str:
         """Genera respuesta del asistente según configuración y contexto."""
         try:
-            if self._is_simple_greeting(processed_msg.processed_content):
-                return self._build_greeting_response()
-
             if not rag_enabled:
                 return self.generate_legacy_response(user_id, processed_msg, context_id=context_id)
 
@@ -158,9 +136,6 @@ class ResponseGenerationUseCase:
     ) -> dict:
         """Genera respuesta y, opcionalmente, retorna traza de thinking si el proveedor la soporta."""
         try:
-            if self._is_simple_greeting(processed_msg.processed_content):
-                return {"content": self._build_greeting_response(), "thinking": ""}
-
             if not rag_enabled:
                 return self.generate_legacy_response_with_trace(
                     user_id=user_id,
@@ -296,15 +271,6 @@ class ResponseGenerationUseCase:
         except Exception as e:
             self.logger.error(f"Error al clasificar intención web/model: {e}")
             return False
-
-    def _is_simple_greeting(self, user_text: Optional[str]) -> bool:
-        text = (user_text or "").lower().strip()
-        if not text:
-            return False
-        return any(re.search(pattern, text, re.IGNORECASE) for pattern in self.GREETING_PATTERNS)
-
-    def _build_greeting_response(self) -> str:
-        return self._get_welcome_message()
 
     def _generate_plain_ai_response(self, processed_msg: Any) -> str:
         try:

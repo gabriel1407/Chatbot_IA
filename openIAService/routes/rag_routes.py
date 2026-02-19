@@ -10,8 +10,14 @@ from core.auth.jwt_middleware import require_jwt
 rag_bp = Blueprint("rag", __name__, url_prefix="/api/rag")
 logger = get_app_logger()
 
-# Proteger ingesta y gestión de documentos con JWT
-rag_bp.before_request(require_jwt)
+# Solo rutas de escritura requieren JWT. La búsqueda (GET /search) es interna y no la proteges.
+_WRITE_ENDPOINTS = {"rag.ingest_text", "rag.ingest_file", "rag.delete_document"}
+
+@rag_bp.before_request
+def auth_check():
+    if request.endpoint in _WRITE_ENDPOINTS:
+        return require_jwt()
+    return None  # GET /search y otros ópticos pasan sin auth
 
 
 def _get_rag_service():

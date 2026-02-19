@@ -37,25 +37,34 @@ class AIProviderFactoryAdapter:
 
 
 class RAGSearchPortAdapter:
-    """Adapter de búsqueda RAG global vía endpoint HTTP."""
+    """Adapter de búsqueda RAG global — llama directamente al servicio interno."""
 
     def search(self, query: str, top_k: Optional[int] = None) -> Optional[List[dict]]:
         if not settings.rag_enabled:
             return None
-
-        url = "https://optimus.pegasoconsulting.net/service_ia/api/rag/search"
-        params = {
-            "query": query,
-            "top_k": top_k or settings.rag_chat_top_k or settings.rag_top_k,
-            "min_similarity": settings.rag_global_min_similarity,
-        }
-
-        response = requests.get(url, params=params, timeout=5)
-        response.raise_for_status()
-        data = response.json()
-
-        if data.get("ok"):
-            results = data.get("results", [])
-            return results or None
-
-        return None
+        try:
+            # Llamada directa al servicio Python en lugar de HTTP para evitar overhead
+            # y problemas de autenticación en llamadas internas.
+            from core.config.dependencies import DependencyContainer
+            rag_service = DependencyContainer.get("RAGService")
+            results = rag_service.retrieve(
+                query_text=query,
+                top_k=top_k or getattr(settings, "rag_chat_top_k", None) or settings.rag_top_k,
+                min_similarity=settings.rag_global_min_similarity,
+            )
+            if not results:
+                return None
+            return [
+                {
+                    "document_id": chunk.document_id,
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "metadata": chunk.metadata,
+                    "similarity": float(score),
+                }
+                for chunk, score in results
+            ]
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[RAGSearchPortAdapter] Error buscando en RAG: {e}")
+            return None

@@ -1,11 +1,10 @@
 """
-Servicio que integra RAG con LLM (OpenAI).
-Busca información en el RAG y la pasa como contexto a OpenAI.
+Servicio que integra RAG con LLM.
+Busca información en el RAG y la pasa como contexto al proveedor IA configurado.
 """
 from typing import Optional, List
 from core.config.settings import settings
 from core.logging.logger import get_infrastructure_logger
-import requests
 
 logger = get_infrastructure_logger()
 
@@ -13,46 +12,47 @@ logger = get_infrastructure_logger()
 class RAGLLMService:
     """
     Integración RAG + LLM.
-    Busca información en RAG y genera respuesta contextualizada con OpenAI.
+    Busca información en RAG llamando directamente al servicio Python (sin HTTP).
     """
-    
-    def __init__(self, rag_base_url: str = "http://127.0.0.1:9001"):
-        self.rag_base_url = rag_base_url
+
+    def __init__(self):
         self.logger = get_infrastructure_logger()
-    
+
+    def _get_rag_service(self):
+        """Obtiene el RAGService del contenedor de dependencias."""
+        from core.config.dependencies import DependencyContainer
+        return DependencyContainer.get("RAGService")
+
     def search_rag(self, user_id: str, query: str, top_k: Optional[int] = None, min_similarity: Optional[float] = None) -> List[dict]:
         """
-        Busca información en el RAG.
-        Búsqueda GLOBAL - sin filtrar por user_id.
-        
-        Args:
-            user_id: ID del usuario (para logging, no para filtrado)
-            query: Pregunta o texto a buscar
-            top_k: Número de resultados a retornar
-            
-        Returns:
-            Lista de chunks encontrados con contenido y similitud
+        Busca información en el RAG directamente en el servicio Python.
+        Sin llamadas HTTP — evita problemas de autenticación y latencia.
         """
         try:
             if not settings.rag_enabled:
                 return []
-            url = f"{self.rag_base_url}/api/rag/search"
-            params = {
-                "query": query,
-                "top_k": top_k or settings.rag_chat_top_k or settings.rag_top_k,
-                "min_similarity": (min_similarity if min_similarity is not None else settings.rag_global_min_similarity),
-            }
-            
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            if data.get("ok"):
-                return data.get("results", [])
-            else:
-                self.logger.warning(f"RAG search failed: {data.get('error')}")
-                return []
-                
+
+            rag_service = self._get_rag_service()
+            effective_top_k = top_k or getattr(settings, "rag_chat_top_k", None) or settings.rag_top_k
+            effective_sim = min_similarity if min_similarity is not None else settings.rag_global_min_similarity
+
+            results = rag_service.retrieve(
+                query_text=query,
+                top_k=effective_top_k,
+                min_similarity=effective_sim,
+            )
+
+            return [
+                {
+                    "document_id": chunk.document_id,
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "metadata": chunk.metadata,
+                    "similarity": float(score),
+                }
+                for chunk, score in results
+            ]
+
         except Exception as e:
             self.logger.error(f"Error buscando en RAG: {e}")
             return []
