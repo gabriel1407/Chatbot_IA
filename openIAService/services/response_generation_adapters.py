@@ -7,12 +7,15 @@ from typing import Optional, List
 
 from core.ai.factory import get_ai_provider
 from core.config.settings import settings
+from core.logging.logger import get_app_logger
 from services.context_service_adapter import load_context, save_context
 from services.mcp_service import extract_url_from_message, link_reader_agent, mcp_pipeline
 
+_rag_logger = get_app_logger()
 
-# Default tenant ID para compatibilidad cuando no se especifica uno
-DEFAULT_TENANT_ID = "default"
+# Default tenant ID — configurable via DEFAULT_TENANT_ID en .env
+def _default_tenant() -> str:
+    return settings.default_tenant_id
 
 
 class ContextPortAdapter:
@@ -48,37 +51,42 @@ class RAGSearchPortAdapter:
     def search(
         self,
         query: str,
-        tenant_id: str = DEFAULT_TENANT_ID,
+        tenant_id: str = None,
         top_k: Optional[int] = None,
     ) -> Optional[List[dict]]:
         """
         Busca en el RAG del tenant especificado.
-
-        Args:
-            query: Texto de la consulta
-            tenant_id: ID del tenant (default: "default" para compatibilidad)
-            top_k: Número máximo de resultados
-
-        Returns:
-            Lista de chunks con su similitud, o None si no hay resultados
         """
         if not settings.rag_enabled:
             return None
 
+        effective_tenant_id = tenant_id or _default_tenant()
+
         try:
-            # Llamada directa al servicio Python
+            _rag_logger.info(
+                f"[RAG] Buscando en tenant='{effective_tenant_id}' query='{query[:60]}'"
+            )
             from core.config.dependencies import DependencyContainer
             rag_service = DependencyContainer.get("RAGService")
 
+            # Para búsquedas de canal usamos el umbral global (más permisivo: 0.3)
+            # en vez del umbral estricto de ingestión (0.7)
+            min_sim = getattr(settings, "rag_global_min_similarity", 0.3)
+
             results = rag_service.retrieve(
                 query_text=query,
-                tenant_id=tenant_id,
+                tenant_id=effective_tenant_id,
                 top_k=top_k or getattr(settings, "rag_chat_top_k", None) or settings.rag_top_k,
-                min_similarity=settings.rag_min_similarity,
+                min_similarity=min_sim,
             )
 
             if not results:
+                _rag_logger.info(
+                    f"[RAG] Sin resultados para tenant='{effective_tenant_id}' (min_similarity={min_sim})"
+                )
                 return None
+
+            _rag_logger.info(f"[RAG] {len(results)} chunks encontrados en tenant='{effective_tenant_id}'")
 
             return [
                 {
@@ -91,9 +99,8 @@ class RAGSearchPortAdapter:
                 for chunk, score in results
             ]
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"[RAGSearchPortAdapter] Error buscando en RAG para tenant {tenant_id}: {e}"
+            _rag_logger.warning(
+                f"[RAGSearchPortAdapter] Error buscando en RAG para tenant '{effective_tenant_id}': {e}"
             )
             return None
 
@@ -103,10 +110,6 @@ class RAGSearchPortAdapter:
         tenant_id: Optional[str] = None,
         top_k: Optional[int] = None,
     ) -> Optional[List[dict]]:
-        """
-        Busca en RAG con fallback a tenant default si no se especifica.
-
-        Útil durante la transición a multi-tenant.
-        """
-        effective_tenant_id = tenant_id or DEFAULT_TENANT_ID
+        """Busca en RAG con fallback a tenant configurado por defecto."""
+        effective_tenant_id = tenant_id or _default_tenant()
         return self.search(query=query, tenant_id=effective_tenant_id, top_k=top_k)

@@ -301,7 +301,7 @@ class ResponseGenerationUseCase:
                     {"role": "user", "content": processed_msg.processed_content}
                 ],
                 temperature=0.7,
-                max_tokens=500,
+                max_tokens=2048,
             )
             return resp_text
         except Exception as e:
@@ -322,8 +322,7 @@ class ResponseGenerationUseCase:
                     prompt=processed_msg.processed_content,
                     messages=messages,
                     temperature=0.7,
-                    max_tokens=500,
-                    think=True,
+                    max_tokens=2048,
                 )
                 return {
                     "content": traced.get("content", ""),
@@ -334,7 +333,7 @@ class ResponseGenerationUseCase:
                 prompt=processed_msg.processed_content,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=500,
+                max_tokens=2048,
             )
             return {"content": text, "thinking": ""}
         except Exception as e:
@@ -419,7 +418,7 @@ Responde de forma concisa y relevante."""
                 prompt=processed_msg.processed_content,
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 temperature=0.7,
-                max_tokens=500,
+                max_tokens=2048,
             )
 
             return resp_text
@@ -457,8 +456,7 @@ Responde de forma concisa y relevante."""
                         {"role": "user", "content": user_prompt},
                     ],
                     temperature=0.7,
-                    max_tokens=500,
-                    think=True,
+                    max_tokens=2048,
                 )
                 return {
                     "content": traced.get("content", ""),
@@ -472,7 +470,7 @@ Responde de forma concisa y relevante."""
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=500,
+                max_tokens=2048,
             )
 
             return {"content": resp_text, "thinking": ""}

@@ -124,6 +124,18 @@ class RAGService:
         """
         return self._vs.delete_by_document_id(document_id, tenant_id=tenant_id)
 
+    def delete_tenant_data(self, tenant_id: str) -> bool:
+        """
+        Elimina TODOS los documentos y chunks del tenant (reset completo).
+
+        Args:
+            tenant_id: ID del tenant
+
+        Returns:
+            True si se eliminó correctamente
+        """
+        return self._vs.delete_tenant_collection(tenant_id)
+
     def retrieve(
         self,
         query_text: str,

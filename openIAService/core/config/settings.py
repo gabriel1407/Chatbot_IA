@@ -85,8 +85,12 @@ class Settings(BaseSettings):
     ollama_api_key: Optional[str] = Field(None, env="OLLAMA_API_KEY")
     ollama_channel_streaming_enabled: bool = Field(default=False, env="OLLAMA_CHANNEL_STREAMING_ENABLED")
     ollama_channel_thinking_enabled: bool = Field(default=False, env="OLLAMA_CHANNEL_THINKING_ENABLED")
+    ollama_max_tokens: int = Field(default=2048, env="OLLAMA_MAX_TOKENS")
     ollama_stream_chunk_size: int = Field(default=120, env="OLLAMA_STREAM_CHUNK_SIZE")
     ollama_stream_max_updates: int = Field(default=20, env="OLLAMA_STREAM_MAX_UPDATES")
+
+    # Tenant por defecto cuando no se especifica X-Tenant-ID en el webhook
+    default_tenant_id: str = Field(default="default", env="DEFAULT_TENANT_ID")
     
     # Telegram
     telegram_token: str = Field(..., env="TELEGRAM_TOKEN")

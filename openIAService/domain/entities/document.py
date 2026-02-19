@@ -56,7 +56,7 @@ class Document:
     """
     content: str
     document_type: DocumentType
-    user_id: str
+    user_id: Optional[str] = None
     title: Optional[str] = None
     id: Optional[str] = None
     file_path: Optional[str] = None
@@ -68,9 +68,6 @@ class Document:
         """Validaciones después de la inicialización."""
         if not self.content:
             raise ValueError("El contenido del documento no puede estar vacío")
-        
-        if not self.user_id:
-            raise ValueError("El user_id es obligatorio")
     
     def add_chunk(self, chunk: DocumentChunk) -> None:
         """

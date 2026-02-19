@@ -177,24 +177,25 @@ class ChromaVectorStoreRepository(VectorStoreRepository):
                     query.get_normalized_query()
                 )
 
-            # Construir filtros combinando tenant_id con filtros existentes
-            where_filter = query.filters or {}
-            # El tenant_id ya está implícito en la colección, pero lo añadimos por seguridad
-            where_filter["tenant_id"] = tenant_id
+            # El aislamiento por tenant ya lo garantiza la colección separada.
+            # Solo aplicar where si hay filtros adicionales reales (user_id, etc.)
+            # ChromaDB lanza excepción con where={} vacío.
+            where_filter = {k: v for k, v in (query.filters or {}).items() if k != "tenant_id"}
+            use_where = where_filter or None
 
             # Ejecutar búsqueda
             if query_embedding:
                 res = collection.query(
                     query_embeddings=[query_embedding],
                     n_results=query.top_k,
-                    where=where_filter,
+                    where=use_where,
                     include=["documents", "metadatas", "distances"],
                 )
             else:
                 res = collection.query(
                     query_texts=[query.get_normalized_query()],
                     n_results=query.top_k,
-                    where=where_filter,
+                    where=use_where,
                     include=["documents", "metadatas", "distances"],
                 )
 
@@ -242,11 +243,33 @@ class ChromaVectorStoreRepository(VectorStoreRepository):
         """
         try:
             collection = self._get_or_create_collection(tenant_id)
-            collection.delete(where={"document_id": document_id, "tenant_id": tenant_id})
+            # Filtrar solo por document_id; la colección ya aísla por tenant
+            collection.delete(where={"document_id": document_id})
             self._logger.info(f"Documento {document_id} eliminado del tenant {tenant_id}")
             return True
         except Exception as e:
             self._logger.error(f"Error eliminando documento {document_id} en tenant {tenant_id}: {e}")
+            raise VectorStoreException(str(e))
+
+    def delete_tenant_collection(self, tenant_id: str) -> bool:
+        """
+        Elimina TODA la colección del tenant de ChromaDB (borrado completo).
+
+        Args:
+            tenant_id: ID del tenant
+
+        Returns:
+            True si se eliminó correctamente
+        """
+        try:
+            collection_name = self._get_collection_name(tenant_id)
+            self._client.delete_collection(collection_name)
+            # Limpiar caché interno
+            self._collections.pop(tenant_id, None)
+            self._logger.info(f"Colección '{collection_name}' eliminada para tenant '{tenant_id}'")
+            return True
+        except Exception as e:
+            self._logger.error(f"Error eliminando colección del tenant '{tenant_id}': {e}")
             raise VectorStoreException(str(e))
 
     def delete_by_user_id(self, user_id: str, tenant_id: str) -> bool:

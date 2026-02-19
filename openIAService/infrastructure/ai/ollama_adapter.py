@@ -95,8 +95,10 @@ class OllamaAdapter(AIProvider):
         try:
             model = kwargs.get("model", self.model)
             temperature = kwargs.get("temperature", 0.7)
-            max_tokens = kwargs.get("max_tokens", 512)
-            think = self._normalize_think_value(model_name=model, think=kwargs.get("think"))
+            max_tokens = kwargs.get("max_tokens", getattr(self.settings, "ollama_max_tokens", 2048))
+            # Si no se pasa think explícitamente, leer de settings (False por defecto)
+            raw_think = kwargs.get("think", self.settings.ollama_channel_thinking_enabled)
+            think = self._normalize_think_value(model_name=model, think=raw_think)
             
             # Build messages array
             messages = kwargs.get("messages")
@@ -145,10 +147,12 @@ class OllamaAdapter(AIProvider):
         """Genera respuesta no-stream devolviendo contenido final y traza thinking."""
         model = kwargs.get("model", self.model)
         temperature = kwargs.get("temperature", 0.7)
-        max_tokens = kwargs.get("max_tokens", 512)
+        max_tokens = kwargs.get("max_tokens", getattr(self.settings, "ollama_max_tokens", 2048))
+        # Si no se pasa think explícitamente, leer de settings
+        raw_think = kwargs.get("think", self.settings.ollama_channel_thinking_enabled)
         think = self._normalize_think_value(
             model_name=model,
-            think=kwargs.get("think", True),
+            think=raw_think,
         )
 
         messages = kwargs.get("messages")

@@ -14,7 +14,7 @@ rag_bp = Blueprint("rag", __name__, url_prefix="/api/rag")
 logger = get_app_logger()
 
 # Endpoints de escritura requieren JWT
-_WRITE_ENDPOINTS = {"rag.ingest_text", "rag.ingest_file", "rag.delete_document"}
+_WRITE_ENDPOINTS = {"rag.ingest_text", "rag.ingest_file", "rag.delete_document", "rag.delete_tenant"}
 
 
 @rag_bp.before_request
@@ -281,6 +281,36 @@ def delete_document(doc_id: str):
         "ok": ok,
         "document_id": doc_id,
         "tenant_id": tenant_id,
+    })
+
+
+@rag_bp.route("/tenant", methods=["DELETE"])
+def delete_tenant():
+    """
+    Elimina TODOS los documentos del tenant (reset completo de la colección RAG).
+
+    Query params / header:
+    - tenant_id: ID del tenant (REQUERIDO)
+
+    ⚠️ Esta operación es irreversible.
+    """
+    tenant_id = _get_tenant_id_from_request()
+
+    from core.config.settings import settings
+    if not settings.rag_enabled:
+        raise APIException(
+            message="RAG está deshabilitado por configuración",
+            status_code=503,
+            code="RAG_DISABLED",
+        )
+
+    rag = _get_rag_service()
+    ok = rag.delete_tenant_data(tenant_id)
+
+    return jsonify({
+        "ok": ok,
+        "tenant_id": tenant_id,
+        "message": f"Todos los datos RAG del tenant '{tenant_id}' eliminados correctamente.",
     })
 
 

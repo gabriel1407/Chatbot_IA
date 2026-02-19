@@ -101,6 +101,25 @@ def initialize_dependencies():
     except Exception as e:
         logger.warning(f"AdminUserRepository no inicializado: {e}")
 
+    # --- TenantChannelService (routing multi-tenant por canal) ---
+    try:
+        from infrastructure.persistence.mysql_tenant_channel_repository import MySQLTenantChannelRepository
+        from application.services.tenant_channel_service import TenantChannelService
+
+        db_url = getattr(settings, "database_url", None)
+        if db_url and db_url.lower().startswith("mysql"):
+            tenant_channel_repo = MySQLTenantChannelRepository(db_url)
+            tenant_channel_svc = TenantChannelService(tenant_channel_repo)
+            DependencyContainer.register("TenantChannelService", tenant_channel_svc)
+            logger.info("TenantChannelService registrado correctamente")
+        else:
+            logger.warning(
+                "TenantChannelService requiere MySQL (DATABASE_URL con mysql://). "
+                "El routing multi-tenant por phone_number_id no estará disponible."
+            )
+    except Exception as e:
+        logger.warning(f"TenantChannelService no inicializado: {e}")
+
     # Handler de mensajes (application/use-cases + adapters)
     try:
         from infrastructure.persistence.topic_detection_service import TopicDetectionService

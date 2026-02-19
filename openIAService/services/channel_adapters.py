@@ -72,11 +72,12 @@ class ChannelAdapter(ABC):
 class WhatsAppAdapter(ChannelAdapter):
     """Adapter para WhatsApp Business API."""
     
-    def __init__(self):
+    def __init__(self, token: Optional[str] = None, phone_number_id: Optional[str] = None):
         from core.config.settings import settings
         from core.deduplication_cache import get_deduplication_cache
-        self.token = settings.whatsapp_token
-        self.api_url = settings.whatsapp_api_url
+        self.token = token or settings.whatsapp_token
+        _pid = phone_number_id or settings.phone_number_id
+        self.api_url = f"https://graph.facebook.com/v18.0/{_pid}/messages"
         self.logger = get_whatsapp_logger()
         # Deduplicación: cache compartido entre workers usando SQLite
         self._dedup_cache = get_deduplication_cache()
@@ -266,10 +267,10 @@ class WhatsAppAdapter(ChannelAdapter):
 class TelegramAdapter(ChannelAdapter):
     """Adapter para Telegram Bot API."""
     
-    def __init__(self):
+    def __init__(self, token: Optional[str] = None):
         from core.config.settings import settings
-        self.token = settings.telegram_token
-        self.api_url = settings.telegram_api_url
+        self.token = token or settings.telegram_token
+        self.api_url = f"https://api.telegram.org/bot{self.token}"
         self.logger = get_telegram_logger()
     
     def parse_incoming_message(self, raw_data: Dict[str, Any]) -> Optional[IncomingMessage]:
@@ -436,7 +437,7 @@ class UnifiedChannelService:
         }
         self.logger = get_whatsapp_logger()  # Logger general
     
-    def process_webhook(self, channel: ChannelType, raw_data: Dict[str, Any], tenant_id: str = "default") -> bool:
+    def process_webhook(self, channel: ChannelType, raw_data: Dict[str, Any], tenant_id: str = "default", adapter_override: Optional[ChannelAdapter] = None) -> bool:
         """
         Procesa un webhook de cualquier canal.
         
@@ -444,13 +445,14 @@ class UnifiedChannelService:
             channel: Tipo de canal
             raw_data: Datos crudos del webhook
             tenant_id: ID del tenant para aislamiento RAG (default: "default")
+            adapter_override: Adapter personalizado con token/config del tenant (opcional)
             
         Returns:
             True si se procesó exitosamente
         """
         try:
-            # Obtener adapter del canal
-            adapter = self.adapters.get(channel)
+            # Obtener adapter del canal (prioridad: override > adapter registrado)
+            adapter = adapter_override or self.adapters.get(channel)
             if not adapter:
                 self.logger.error(f"No hay adapter disponible para canal {channel.value}")
                 return False
@@ -689,10 +691,14 @@ class WhatsAppResponseEmitter(BaseChannelResponseEmitter):
                 )
             )
 
+        safe_content = (content or "").strip()
+        if not safe_content:
+            return False
+
         return self.adapter.send_message(
             OutgoingMessage(
                 recipient_id=self.recipient_id,
-                content=content,
+                content=safe_content,
                 channel=ChannelType.WHATSAPP,
             )
         )
@@ -713,15 +719,39 @@ class TelegramResponseEmitter(BaseChannelResponseEmitter):
         self.show_thinking = show_thinking
 
     def emit(self, *, content: str, thinking: str = "") -> bool:
-        if not self.streaming_enabled:
+        import time
+
+        thinking_sent = False
+
+        # Enviar thinking como mensaje separado (igual que WhatsApp)
+        if self.show_thinking and thinking:
+            clipped_thinking = thinking[:1000]
+            self.adapter.send_message(
+                OutgoingMessage(
+                    recipient_id=self.recipient_id,
+                    content=f"🤔 Pensamiento:\n{clipped_thinking}",
+                    channel=ChannelType.TELEGRAM,
+                )
+            )
+            thinking_sent = True
+            # Pausa para evitar rate-limit de Telegram (1 msg/seg por chat)
+            time.sleep(1.1)
+
+        if not self.streaming_enabled or thinking_sent:
+            # No usar animación de streaming si ya mandamos el thinking:
+            # evita rate-limit al enviar dos mensajes casi simultáneos.
+            safe_content = (content or "").strip()
+            if not safe_content:
+                return False
             return self.adapter.send_message(
                 OutgoingMessage(
                     recipient_id=self.recipient_id,
-                    content=content,
+                    content=safe_content,
                     channel=ChannelType.TELEGRAM,
                 )
             )
 
+        # Streaming sin thinking: animación de edición progresiva
         message_id = self._send_initial_message("⏳ Pensando...")
         if message_id is None:
             return self.adapter.send_message(
@@ -732,11 +762,6 @@ class TelegramResponseEmitter(BaseChannelResponseEmitter):
                 )
             )
 
-        header = ""
-        if self.show_thinking and thinking:
-            clipped_thinking = thinking[:1000]
-            header = f"🤔 Pensamiento:\n{clipped_thinking}\n\n✍️ Respuesta:\n"
-
         stream_source = content or ""
         chunk_size = max(40, int(settings.ollama_stream_chunk_size or 120))
         max_updates = max(1, int(settings.ollama_stream_max_updates or 20))
@@ -746,8 +771,7 @@ class TelegramResponseEmitter(BaseChannelResponseEmitter):
             if emitted >= max_updates:
                 break
             partial = stream_source[: idx + chunk_size]
-            text = f"{header}{partial}" if header else partial
-            if not self._edit_message(message_id=message_id, text=text):
+            if not self._edit_message(message_id=message_id, text=partial):
                 return self.adapter.send_message(
                     OutgoingMessage(
                         recipient_id=self.recipient_id,
@@ -757,8 +781,7 @@ class TelegramResponseEmitter(BaseChannelResponseEmitter):
                 )
             emitted += 1
 
-        final_text = f"{header}{stream_source}" if header else stream_source
-        return self._edit_message(message_id=message_id, text=final_text)
+        return self._edit_message(message_id=message_id, text=stream_source)
 
     def _send_initial_message(self, text: str) -> Optional[int]:
         try:
