@@ -6,9 +6,9 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![AI](https://img.shields.io/badge/AI-OpenAI%20%7C%20Gemini%20%7C%20Ollama-orange.svg)
 
-## 🚀 Sistema Inteligente de Chatbot Multi-Proveedor con IA
+## 🚀 Sistema Inteligente de Chatbot Multi-Tenant con IA
 
-Chatbot avanzado con soporte para **múltiples proveedores de IA** (OpenAI, Gemini, Ollama) para conversaciones inteligentes a través de WhatsApp y Telegram, con arquitectura limpia, principios SOLID, RAG (Retrieval Augmented Generation) y sistema automático de limpieza de contexto.
+Plataforma SaaS de chatbot avanzado con soporte para **múltiples proveedores de IA** (OpenAI, Gemini, Ollama) y **múltiples clientes (multi-tenant)** simultáneos. Cada cliente tiene su propio canal de WhatsApp/Telegram, base de conocimiento RAG aislada y credenciales independientes, todo gestionado desde una única instancia.
 
 ---
 
@@ -32,9 +32,18 @@ Chatbot avanzado con soporte para **múltiples proveedores de IA** (OpenAI, Gemi
 - **Búsqueda semántica** para contexto relevante
 - **Indexación automática** de documentos
 
-### 💬 **Multi-Canal**
-- **WhatsApp** - Integración completa con Meta API
-- **Telegram** - Bot nativo con todas las funciones
+### 💬 **Multi-Canal & Multi-Tenant**
+- **WhatsApp Business API** — token y `phone_number_id` por cliente, routing automático por número
+- **Telegram Bot API** — bot dedicado por cliente, webhook `/webhook/telegram/<tenant_id>` registrado automáticamente
+- **Aislamiento total** — cada cliente tiene su RAG, su canal y sus credenciales; sin mezcla de datos
+- **Base de datos de canales** — tabla `tenant_channels` en MySQL almacena tokens y credenciales por cliente
+- **Caché de routing** — TTL de 5 minutos para resolución `phone_number_id → tenant` sin hits de DB
+
+### 🔐 **Autenticación JWT**
+- Login con usuario/contraseña → par de tokens (access + refresh)
+- Acceso protegido a todos los endpoints de escritura
+- Roles: `admin` (gestión de usuarios) y usuarios normales
+- Usuario admin inicial auto-creado desde variable de entorno
 
 ### 🏗️ **Arquitectura Avanzada**
 - **Clean Architecture** con separación por capas (Domain, Application, Infrastructure)
@@ -136,36 +145,38 @@ RAG_TOP_K=5
 RAG_MIN_SIMILARITY=0.7
 ```
 
-### 📝 **Ingestar Documentos**
+### 📝 **Ingestar Documentos por Tenant**
+
+Cada archivo se asocia al cliente mediante `tenant_id`. Queda almacenado en una colección ChromaDB aislada (`tenant_<id>_chunks`).
 
 ```bash
 # Texto directo
-curl -X POST http://localhost:9001/service_ia/api/rag/ingest \
-  -F "user_id=user123" \
-  -F "text=Contenido del documento..." \
-  -F "title=Mi Documento"
+curl -X POST https://tu-servidor/service_ia/api/rag/ingest \
+  -H "Authorization: Bearer <JWT>" \
+  -F "tenant_id=digitel" \
+  -F "text=Digitel ofrece planes de datos..." \
+  -F "title=Planes Digitel"
 
-# Archivo PDF/DOCX
-curl -X POST http://localhost:9001/service_ia/api/rag/ingest/file \
-  -F "user_id=user123" \
-  -F "file=@documento.pdf" \
-  -F "title=Manual de Usuario"
+# Archivo PDF/DOCX/TXT
+curl -X POST https://tu-servidor/service_ia/api/rag/ingest/file \
+  -H "Authorization: Bearer <JWT>" \
+  -F "tenant_id=digitel" \
+  -F "file=@manual_producto.pdf"
 ```
 
-### 🔍 **Buscar Contexto**
+### 🔍 **Buscar y Eliminar**
 
 ```bash
-# Búsqueda semántica
-curl "http://localhost:9001/service_ia/api/rag/search?query=¿Cómo+configurar+el+sistema?&top_k=5"
+# Búsqueda semántica (aislada al tenant)
+curl "https://tu-servidor/service_ia/api/rag/search?tenant_id=digitel&query=planes+de+datos"
 
-# Búsqueda por usuario
-curl "http://localhost:9001/service_ia/api/rag/search?user_id=user123&query=mi+consulta"
-```
+# Eliminar documento específico
+curl -X DELETE "https://tu-servidor/service_ia/api/rag/documents/<doc_id>?tenant_id=digitel" \
+  -H "Authorization: Bearer <JWT>"
 
-### 🗑️ **Eliminar Documentos**
-
-```bash
-curl -X DELETE http://localhost:9001/service_ia/api/rag/documents/doc-id-123
+# Borrar TODO el RAG del tenant (reset completo)
+curl -X DELETE "https://tu-servidor/service_ia/api/rag/tenant?tenant_id=digitel" \
+  -H "Authorization: Bearer <JWT>"
 ```
 
 ### 🎯 **Embeddings por Proveedor**
@@ -352,19 +363,55 @@ Nota: mostrar el campo `thinking` al usuario final no suele ser recomendado en p
 GET /uploaded_files             # Lista de archivos
 ```
 
+### � **Autenticación**
+```bash
+POST /api/auth/login                        # Login → access_token + refresh_token
+POST /api/auth/refresh                      # Renovar access_token
+GET  /api/auth/me                           # Info del usuario autenticado
+PATCH /api/auth/me/password                 # Cambiar contraseña
+GET  /api/auth/users                        # Listar usuarios (solo admin)
+POST /api/auth/users                        # Crear usuario (solo admin)
+```
+
+### 🏢 **Canales por Tenant (Multi-Tenant)**
+```bash
+GET    /api/tenant-channels/               # Listar todos los canales registrados
+GET    /api/tenant-channels/<tenant_id>    # Canales de un cliente específico
+POST   /api/tenant-channels/               # Crear/actualizar canal (registra webhook automáticamente)
+DELETE /api/tenant-channels/<tenant_id>/<channel>  # Desactivar canal
+POST   /api/tenant-channels/<tenant_id>/<channel>/cache/clear  # Limpiar caché
+```
+
+### 📡 **Webhooks Multi-Tenant**
+```bash
+POST /whatsapp                             # WhatsApp (routing por phone_number_id automático)
+POST /webhook/telegram                     # Telegram genérico
+POST /webhook/telegram/<tenant_id>         # Telegram dedicado por cliente
+```
+
 ### 🔎 RAG (Retrieval Augmented Generation)
 ```bash
-POST /api/rag/ingest            # Ingestar texto al vector store
-GET  /api/rag/search            # Buscar contexto semántico
-DELETE /api/rag/documents/:id   # Eliminar documento indexado
+POST   /api/rag/ingest                     # Ingestar texto (requiere tenant_id)
+POST   /api/rag/ingest/file                # Ingestar archivo PDF/DOCX/TXT
+GET    /api/rag/search                     # Búsqueda semántica por tenant
+GET    /api/rag/stats                      # Estadísticas de chunks por tenant
+DELETE /api/rag/documents/<doc_id>         # Eliminar documento
+DELETE /api/rag/tenant                     # Borrar TODO el RAG de un tenant ⚠️
 ```
 Ejemplos:
 ```bash
-curl -X POST http://localhost:9001/api/rag/ingest \
-	-H 'Content-Type: application/json' \
-	-d '{"user_id":"u1","document_id":"doc-1","title":"Manual","text":"contenido a indexar"}'
+# Subir archivo al RAG del cliente
+curl -X POST https://tu-servidor/service_ia/api/rag/ingest/file \
+  -H "Authorization: Bearer <JWT>" \
+  -F "tenant_id=digitel" \
+  -F "file=@manual.pdf"
 
-curl 'http://localhost:9001/api/rag/search?user_id=u1&query=consulta'
+# Buscar en el RAG del cliente
+curl "https://tu-servidor/service_ia/api/rag/search?tenant_id=digitel&query=mi+consulta"
+
+# Borrar todo el RAG de un cliente
+curl -X DELETE "https://tu-servidor/service_ia/api/rag/tenant?tenant_id=digitel" \
+  -H "Authorization: Bearer <JWT>"
 
 Integración con Nginx del servidor (externo)
 Si tienes un Nginx frontal (por ejemplo optimus.pegasoconsulting.net) y quieres publicar el servicio bajo /service_ia/, usa algo como:
@@ -450,10 +497,13 @@ openIAService/
 │   └── context_cleanup_service.py
 │
 └── routes/                    # 🌐 API ENDPOINTS
-    ├── whatsapp_routes.py
-    ├── telegram_routes.py
-    ├── rag_routes.py          # RAG endpoints
-    └── chat_routes.py         # Chat con RAG
+    ├── whatsapp_routes.py     # Routing automático por phone_number_id
+    ├── telegram_routes.py     # /webhook/telegram y /webhook/telegram/<tenant_id>
+    ├── rag_routes.py          # RAG endpoints (multi-tenant, JWT)
+    ├── chat_routes.py         # Chat con RAG
+    ├── auth_routes.py         # JWT login/refresh/users
+    ├── tenant_routes.py       # Configuración de tenants
+    └── tenant_channel_routes.py  # Canales por tenant (NUEVO)
 ```
 
 ### 🔄 **Patrones de Diseño Implementados**
@@ -652,9 +702,23 @@ Este proyecto está bajo la licencia MIT. Ver [LICENSE](LICENSE) para más detal
 
 ---
 
-*Última actualización: Febrero 2026*
+*Última actualización: Febrero 2026 — v3.0.0 Multi-Tenant*
 
 ## 📄 Changelog Reciente
+
+### v3.0.0 (Febrero 2026) — Plataforma Multi-Tenant
+- ✅ **Tabla `tenant_channels`** en MySQL — credenciales de WhatsApp/Telegram por cliente
+- ✅ **Routing automático de webhooks** — `phone_number_id → tenant_id` con caché de 5 min
+- ✅ **Ruta dedicada por bot Telegram** — `/webhook/telegram/<tenant_id>`
+- ✅ **Registro de webhook Telegram automático** al crear canal en la API
+- ✅ **Verificación de credenciales WhatsApp** contra Graph API al registrar canal
+- ✅ **RAG aislado por tenant** — colecciones ChromaDB separadas (`tenant_<id>_chunks`)
+- ✅ **Endpoint `DELETE /api/rag/tenant`** — reset completo del RAG de un cliente
+- ✅ **Fix ChromaDB where filter** — eliminado filtro `tenant_id` en metadata (causaba 0 resultados)
+- ✅ **Fix umbral RAG** — `rag_global_min_similarity=0.3` para búsquedas de canal (era 0.7)
+- ✅ **Fix Ollama thinking** — `think=False` por defecto y `num_predict=2048` mínimo
+- ✅ **JWT Authentication** — login, refresh, gestión de usuarios, roles admin
+- ✅ **`TenantChannelService`** con inyección de dependencias y caché thread-safe
 
 ### v2.1.0 (Febrero 2026)
 - ✅ **Fase 3 completada**: extracción de generación de respuestas a `ResponseGenerationUseCase`
