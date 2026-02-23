@@ -2,6 +2,7 @@
 Rutas RAG - Endpoints para ingestión y búsqueda de documentos con aislamiento multi-tenant.
 """
 from flask import Blueprint, request, jsonify
+import hashlib
 import os
 import uuid
 from werkzeug.utils import secure_filename
@@ -147,9 +148,12 @@ def ingest_file():
             code="VALIDATION_ERROR",
         )
 
-    document_id = str(uuid.uuid4())
-
     filename = secure_filename(file.filename)
+
+    # ID determinístico: mismo archivo + mismo tenant = mismo document_id
+    # Esto permite reemplazar automáticamente el documento si se sube de nuevo
+    document_id = hashlib.md5(f"{tenant_id}:{filename}".encode()).hexdigest()
+
     file_path = os.path.join(UPLOAD_FOLDER, filename)
     file.save(file_path)
 
@@ -181,6 +185,12 @@ def ingest_file():
         )
 
     rag = _get_rag_service()
+
+    # Borrar chunks anteriores del mismo archivo (si existen) antes de reingestar
+    replaced = rag.delete_document(document_id, tenant_id=tenant_id)
+    if replaced:
+        logger.info(f"[RAG] Documento '{filename}' existente reemplazado para tenant='{tenant_id}'")
+
     count = rag.ingest_text(
         tenant_id=tenant_id,
         document_id=document_id,
@@ -195,6 +205,7 @@ def ingest_file():
         "tenant_id": tenant_id,
         "filename": filename,
         "chunks_indexed": count,
+        "replaced": replaced,
     }), 200
 
 
