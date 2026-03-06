@@ -5,6 +5,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![AI](https://img.shields.io/badge/AI-OpenAI%20%7C%20Gemini%20%7C%20Ollama-orange.svg)
+![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-purple.svg)
 
 ## 🚀 Sistema Inteligente de Chatbot Multi-Tenant con IA
 
@@ -21,7 +22,8 @@ Plataforma SaaS de chatbot avanzado con soporte para **múltiples proveedores de
 - **Cambio dinámico de proveedor** - Configurable via variable de entorno
 - **Análisis de imágenes** con visión por computadora
 - **Procesamiento de documentos** (PDF, Word, texto)
-- **Búsqueda web** integrada con SerpAPI
+  - **Búsqueda web** en tiempo real via **MCP Server + Gemini Google Search**
+
 
 ### 🎯 **RAG (Retrieval Augmented Generation)**
 - **Embeddings multi-proveedor**:
@@ -52,8 +54,22 @@ Plataforma SaaS de chatbot avanzado con soporte para **múltiples proveedores de
 - **Strategy Pattern** para algoritmos intercambiables
 - **Factory Pattern** para creación de proveedores
 - **Adapter Pattern** para unificación de interfaces
+- **Port/Adapter Pattern** para integración MCP
 - **Memoria vectorial** para búsqueda semántica
 - **Optimización de tokens** para mejor rendimiento
+
+### 🔌 **MCP (Model Context Protocol)**
+- **MCP Server** independiente como servicio Docker (FastMCP + SSE transport)
+- **Herramientas expuestas vía MCP** (8 tools en total):
+  - `web_search` — búsqueda Google en tiempo real (Gemini grounding)
+  - `read_webpage` — lectura y extracción de contenido de URLs
+  - `rag_search` / `rag_stats` — búsqueda en la base de conocimiento
+  - `list_tenants` / `get_tenant` — gestión de tenants
+  - `get_context_stats` / `get_context_status` — monitoreo de conversaciones
+  - `chatbot_health` / `send_chat_message` — health check e integración interna
+- **MCP Client** en Flask (SSE, con fallback automático a implementación legacy)
+- **JWT Service Token** — el MCP Server firma sus propios tokens usando `JWT_SECRET_KEY` compartido
+- **Hot-reload** automático con `watchfiles` para desarrollo sin rebuild
 ---
 
 ## 🔄 Cambiar entre Proveedores de IA
@@ -237,8 +253,12 @@ TOKEN_WHATSAPP=tu-token-whatsapp
 PHONE_NUMBER_ID=tu-numero-whatsapp
 TELEGRAM_TOKEN=tu-token-telegram
 
-# Búsqueda web (opcional)
-SERPAPI_KEY=tu-clave-serpapi
+# MCP Server
+MCP_SERVER_URL=http://mcp_server:8083
+JWT_SECRET_KEY=tu-secreto-jwt           # Compartido con el MCP Server
+
+# Búsqueda web (ahora vía MCP + Gemini — SERPAPI_KEY ya no es necesario)
+GEMINI_API_KEY=tu-clave-gemini          # Se usa para web search grounding
 
 # RAG (Retrieval Augmented Generation)
 RAG_ENABLED=True
@@ -256,9 +276,12 @@ python main.py
 cp .env.example .env
 docker compose up --build
 ```
-Servicios:
-- App Flask: http://localhost:9001
-- ChromaDB: http://localhost:9000 (vector store para RAG)
+Servicios que levanta Docker Compose:
+- **app** (Flask): `http://localhost:9001`
+- **chroma** (ChromaDB): `http://localhost:9000`
+- **mcp_server** (MCP SSE): `http://localhost:9002/sse`
+
+> 💡 Todos los servicios soportan **hot-reload** sin necesidad de rebuild al modificar código fuente.
 
 Nota sobre dependencias en Docker
 - La imagen Docker usa un set mínimo en `requirements-base.txt` para garantizar builds estables (Flask, OpenAI, OCR/documentos, Telegram, ChromaDB, RAG).
@@ -479,7 +502,7 @@ openIAService/
 │   ├── vector_store/          # ChromaDB repository
 │   ├── persistence/           # Repositories SQL (SQLite/MySQL)
 │   ├── messaging/             # WhatsApp, Telegram adapters
-│   └── web_search/            # SerpAPI integration
+│   └── web_search/            # Legacy web search
 │
 ├── core/                      # ⚙️ CORE
 │   ├── config/                # Settings, dependencies
@@ -488,6 +511,8 @@ openIAService/
 │   ├── ai/
 │   │   ├── providers.py       # AIProvider interface
 │   │   └── factory.py         # get_ai_provider() factory
+│   ├── mcp/                   # 🔌 MCP CLIENT
+│   │   └── mcp_client.py      # MCPClient SSE + singleton
 │   ├── exceptions/            # Custom exceptions
 │   └── logging/               # Structured logging
 │
@@ -504,6 +529,21 @@ openIAService/
     ├── auth_routes.py         # JWT login/refresh/users
     ├── tenant_routes.py       # Configuración de tenants
     └── tenant_channel_routes.py  # Canales por tenant (NUEVO)
+```
+
+mcp_server/                    # 🔌 MCP SERVER (servicio Docker independiente)
+├── server.py                  # FastMCP entry point + SSE transport (puerto 8083)
+├── Dockerfile                 # Python 3.12-slim + healthcheck TCP
+├── requirements.txt           # mcp[cli], httpx, watchfiles, PyJWT
+├── middleware/
+│   └── auth.py                # JWT service token — firma con JWT_SECRET_KEY sin usuario
+└── tools/
+    ├── web_search.py          # web_search — Gemini Google Search grounding
+    ├── read_webpage.py        # read_webpage — extracción de contenido de URL
+    ├── rag.py                 # rag_search + rag_stats
+    ├── tenant.py              # list_tenants + get_tenant (JWT automático)
+    ├── context.py             # get_context_stats + get_context_status
+    └── chatbot.py             # chatbot_health + send_chat_message
 ```
 
 ### 🔄 **Patrones de Diseño Implementados**
@@ -545,10 +585,11 @@ Bot: [Resumen generado usando RAG si está habilitado]
 3. Las consultas posteriores buscan en el contexto indexado
 4. El LLM genera respuestas basadas en el contenido real del documento
 
-### 🔍 **Búsqueda Web**
-- Búsquedas automáticas cuando se necesita información actualizada
-- Integración transparente con SerpAPI
-- Resultados procesados y resumidos por IA
+### 🔍 **Búsqueda Web (MCP + Gemini)**
+- Detección automática de intención de búsqueda (fast-path por keywords + LLM classifier)
+- `web_search` tool del MCP Server llama a Gemini con Google Search grounding
+- Resultados reales en tiempo real, integrados coherentemente por el LLM
+- Formato optimizado para WhatsApp (< 3800 chars, sin markdown roto)
 
 ### 🎯 **Características Avanzadas**
 
@@ -702,9 +743,22 @@ Este proyecto está bajo la licencia MIT. Ver [LICENSE](LICENSE) para más detal
 
 ---
 
-*Última actualización: Febrero 2026 — v3.0.0 Multi-Tenant*
+*Última actualización: Marzo 2026 — v4.0.0 MCP Integration*
 
 ## 📄 Changelog Reciente
+
+### v4.0.0 (Marzo 2026) — MCP Integration
+- ✅ **MCP Server** como servicio Docker independiente (FastMCP + SSE, puerto 9002)
+- ✅ **8 herramientas MCP** expuestas: `web_search`, `read_webpage`, `chatbot_health`, `send_chat_message`, `rag_search`, `rag_stats`, `list_tenants`, `get_tenant`, `get_context_stats`, `get_context_status`
+- ✅ **MCP Client** en Flask (`core/mcp/mcp_client.py`) con SSE y fallback legacy
+- ✅ **JWT Service Token middleware** — MCP Server firma tokens con `JWT_SECRET_KEY` compartido (sin usuario/contraseña)
+- ✅ **Búsqueda web vía Gemini Google Search grounding** — reemplaza SerpAPI
+- ✅ **Detección de intención web fast-path** — keywords regex sin LLM para queries obvias
+- ✅ **Fix SSE URL** — `/sse` appended automáticamente en `_sse_url` property
+- ✅ **Fix web search en path RAG-enabled** — `_should_use_web_search_with_llm()` ahora se llama aunque RAG esté activado y no haya resultados
+- ✅ **Hot-reload completo** — `watchfiles` + volúmenes Docker para MCP Server y Flask app
+- ✅ **Formato WhatsApp seguro** — límite 3800 chars, `*bold*` en vez de `**bold**`, sin `---`
+- ✅ **Estructura modular del MCP Server** — cada tool en su propio archivo bajo `tools/`
 
 ### v3.0.0 (Febrero 2026) — Plataforma Multi-Tenant
 - ✅ **Tabla `tenant_channels`** en MySQL — credenciales de WhatsApp/Telegram por cliente
