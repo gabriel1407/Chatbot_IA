@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     # SerpAPI (búsqueda web)
     serpapi_key: Optional[str] = Field(None, env="SERPAPI_KEY")
 
+    # MCP Server URL (Model Context Protocol)
+    # Dentro de Docker usa el nombre del servicio; en local apunta a localhost:9002
+    mcp_server_url: str = Field(
+        default="http://mcp_server:8083",
+        env="MCP_SERVER_URL",
+    )
+
+
     # Admin API Key (legacy, mantenida por compatibilidad)
     admin_api_key: Optional[str] = Field(None, env="ADMIN_API_KEY")
 

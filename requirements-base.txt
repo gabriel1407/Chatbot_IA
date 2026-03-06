@@ -47,3 +47,6 @@ tiktoken==0.5.2
 google-genai
 ollama>=0.6.1
 PyJWT==2.8.0
+
+# MCP Client (Model Context Protocol SDK)
+mcp[cli]>=1.2.0

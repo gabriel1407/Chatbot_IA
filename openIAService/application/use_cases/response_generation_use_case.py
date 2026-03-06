@@ -168,6 +168,21 @@ class ResponseGenerationUseCase:
                     include_thinking=include_thinking,
                 )
 
+            # RAG habilitado pero sin documentos relevantes:
+            # verificar si el mensaje requiere búsqueda web antes de responder con LLM.
+            prompt = processed_msg.processed_content
+            url = self.web_assist_port.extract_url(prompt)
+            if url:
+                self.logger.info(f"[WebAssist] URL detectada en mensaje → usando read_webpage")
+                question = re.sub(r'https?://\S+', '', prompt).strip()
+                web_result = self.web_assist_port.summarize_link(url, question or None)
+                return {"content": web_result, "thinking": ""}
+
+            if self._should_use_web_search_with_llm(prompt):
+                self.logger.info(f"[WebAssist] Intención WEB detectada → ejecutando web_search via MCP")
+                web_result = self.web_assist_port.run_web_pipeline(prompt)
+                return {"content": web_result, "thinking": ""}
+
             return self._generate_plain_ai_response_with_trace(
                 processed_msg=processed_msg,
                 include_thinking=include_thinking,
@@ -178,6 +193,7 @@ class ResponseGenerationUseCase:
                 "content": "Disculpa, hubo un error generando la respuesta. Por favor intenta de nuevo.",
                 "thinking": "",
             }
+
 
     def generate_legacy_response(
         self,
@@ -253,21 +269,54 @@ class ResponseGenerationUseCase:
         }
 
     def _should_use_web_search_with_llm(self, user_question: str) -> bool:
-        simple_patterns = [
+        question_lower = (user_question or "").lower().strip()
+
+        # ── 1. Fast-path: patrones que NUNCA necesitan internet ───────────────
+        no_web_patterns = [
             r'^hola\b', r'^hello\b', r'^hi\b', r'^hey\b',
             r'\bquien\s+eres\b', r'\bwho\s+are\s+you\b',
             r'\bcomo\s+estas\b', r'\bhow\s+are\s+you\b',
             r'\bque\s+eres\b', r'\bwhat\s+are\s+you\b',
             r'^gracias\b', r'^thanks\b', r'^thank\s+you\b',
             r'^adios\b', r'^bye\b', r'^goodbye\b',
-            r'\btu\s+nombre\b', r'\byour\s+name\b'
+            r'\btu\s+nombre\b', r'\byour\s+name\b',
         ]
-
-        question_lower = (user_question or "").lower().strip()
-        for pattern in simple_patterns:
+        for pattern in no_web_patterns:
             if re.search(pattern, question_lower, re.IGNORECASE):
                 return False
 
+        # ── 2. Fast-path: keywords que SÍ requieren internet → evita el LLM ──
+        #    Si el mensaje contiene alguna de estas expresiones, WEB inmediato.
+        web_keywords = [
+            # búsqueda explícita
+            r'\bbusca\s+en\s+internet\b', r'\bbusca\s+en\s+la\s+web\b',
+            r'\bbusca\s+en\s+google\b',   r'\bsearch\s+(the\s+)?(web|internet|google)\b',
+            r'\bconsulta\s+en\s+internet\b',
+            # actualidad / tiempo real
+            r'\bhoy\b',           r'\btoday\b',
+            r'\bahora\b',         r'\bright\s+now\b',
+            r'\bactual(mente)?\b',r'\bcurrent(ly)?\b',
+            r'\b\d{4}\b',         # año (ej: "2025", "2026")
+            r'\besta\s+semana\b', r'\bthis\s+week\b',
+            r'\breciente(mente)?\b', r'\blatest\b', r'\brecent\b',
+            # deportes / eventos
+            r'\bjuega\b', r'\bjuegan\b', r'\bpartido\b', r'\bmatch\b',
+            r'\bclasificaci[oó]n\b', r'\bliga\b', r'\btorneo\b',
+            # precios / mercados
+            r'\bprecio\s+de\b',   r'\bprice\s+of\b',
+            r'\bcotizaci[oó]n\b', r'\bbolsa\b', r'\bbtc\b', r'\bcrypto\b',
+            # noticias
+            r'\bnoticias\b',      r'\bnews\b',
+            r'\blo\s+[uú]ltimo\b',r'\blatest\s+news\b',
+            # clima
+            r'\bclima\b', r'\btiempo\s+en\b', r'\bweather\b',
+        ]
+        for pattern in web_keywords:
+            if re.search(pattern, question_lower, re.IGNORECASE):
+                self.logger.info(f"[WebAssist] Fast-path WEB por keyword: '{pattern}'")
+                return True
+
+        # ── 3. Slow-path: LLM classifier solo para casos ambiguos ─────────────
         prompt = (
             "Actúa como un clasificador de intención. "
             "Responde SOLO con 'WEB' si la pregunta requiere buscar información factual, de actualidad, o reciente en internet. "
@@ -277,6 +326,7 @@ class ResponseGenerationUseCase:
         )
 
         try:
+
             provider = self.ai_provider_factory.get_provider()
             messages = [
                 {"role": "system", "content": "Eres un detector de intención para un asistente conversacional."},

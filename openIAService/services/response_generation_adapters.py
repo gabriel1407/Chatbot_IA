@@ -9,7 +9,6 @@ from core.ai.factory import get_ai_provider
 from core.config.settings import settings
 from core.logging.logger import get_app_logger
 from services.context_service_adapter import load_context, save_context
-from services.mcp_service import extract_url_from_message, link_reader_agent, mcp_pipeline
 
 _rag_logger = get_app_logger()
 
@@ -27,14 +26,56 @@ class ContextPortAdapter:
 
 
 class WebAssistPortAdapter:
+    """
+    Adapter de asistencia web.
+    Usa el cliente MCP oficial para ejecutar herramientas en el MCP Server.
+    Si el servidor MCP no está disponible, hace fallback al pipeline legacy.
+    """
+
     def extract_url(self, message: str) -> Optional[str]:
-        return extract_url_from_message(message)
+        """Extrae la primera URL de un mensaje."""
+        import re
+        match = re.search(r'(https?://\S+)', message)
+        return match.group(1) if match else None
 
     def summarize_link(self, url: str, question: Optional[str] = None) -> str:
-        return link_reader_agent(url, question)
+        """
+        Lee y resume el contenido de una URL.
+        Usa la tool 'read_webpage' del MCP Server.
+        """
+        try:
+            from core.mcp.mcp_client import get_mcp_client
+            client = get_mcp_client()
+            args = {"url": url}
+            if question:
+                args["question"] = question
+            result = client.call_tool("read_webpage", args)
+            _rag_logger.info(f"[WebAssist][MCP] read_webpage OK para {url}")
+            return result
+        except Exception as exc:
+            _rag_logger.warning(f"[WebAssist][MCP] Fallback a legacy para {url}: {exc}")
+            # Fallback al servicio legacy
+            from services.mcp_service import link_reader_agent
+            return link_reader_agent(url, question)
 
     def run_web_pipeline(self, query: str) -> str:
-        return mcp_pipeline(query)
+        """
+        Ejecuta búsqueda web y resumen IA.
+        Usa la tool 'web_search' del MCP Server.
+        """
+        try:
+            from core.mcp.mcp_client import get_mcp_client
+            client = get_mcp_client()
+            result = client.call_tool("web_search", {"query": query})
+            _rag_logger.info(f"[WebAssist][MCP] web_search OK para '{query[:50]}'")
+            return result
+        except Exception as exc:
+            _rag_logger.warning(f"[WebAssist][MCP] Fallback a legacy para query '{query[:50]}': {exc}")
+            # Fallback al pipeline legacy
+            from services.mcp_service import mcp_pipeline
+            return mcp_pipeline(query)
+
+
 
 
 class AIProviderFactoryAdapter:
