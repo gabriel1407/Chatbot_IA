@@ -15,6 +15,7 @@ from core.logging.logger import get_infrastructure_logger
 
 _CREATE_TABLE_SQL = text("""
     CREATE TABLE IF NOT EXISTS tenant_config (
+        id                 INT           AUTO_INCREMENT UNIQUE,
         tenant_id          VARCHAR(100)  NOT NULL,
         bot_name           VARCHAR(150)  NOT NULL DEFAULT 'Asistente Virtual',
         bot_persona        TEXT          NOT NULL,
@@ -86,6 +87,11 @@ class MySQLTenantConfigRepository(TenantConfigRepository):
     def _ensure_table(self) -> None:
         with self.engine.begin() as conn:
             conn.execute(_CREATE_TABLE_SQL)
+            try:
+                # Add auto-incremental id to existing config tables if missing
+                conn.execute(text("ALTER TABLE tenant_config ADD COLUMN id INT AUTO_INCREMENT UNIQUE FIRST"))
+            except SQLAlchemyError:
+                pass  # ID column likely already exists
 
     # ------------------------------------------------------------------
     def save(self, config: TenantConfig) -> TenantConfig:
@@ -134,6 +140,18 @@ class MySQLTenantConfigRepository(TenantConfigRepository):
             self.logger.error(f"[TenantConfig] Error buscando {tenant_id}: {e}")
             return None
 
+    def find_by_numeric_id(self, config_id: int) -> Optional[TenantConfig]:
+        sql = text("SELECT * FROM tenant_config WHERE id = :id")
+        try:
+            with self.engine.connect() as conn:
+                row = conn.execute(sql, {"id": config_id}).mappings().first()
+            if row is None:
+                return None
+            return self._row_to_entity(dict(row))
+        except SQLAlchemyError as e:
+            self.logger.error(f"[TenantConfig] Error buscando por id {config_id}: {e}")
+            return None
+
     def find_all(self) -> List[TenantConfig]:
         sql = text("SELECT * FROM tenant_config ORDER BY tenant_id")
         try:
@@ -157,10 +175,23 @@ class MySQLTenantConfigRepository(TenantConfigRepository):
             self.logger.error(f"[TenantConfig] Error eliminando {tenant_id}: {e}")
             return False
 
+    def delete_by_numeric_id(self, config_id: int) -> bool:
+        sql = text("DELETE FROM tenant_config WHERE id = :id")
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(sql, {"id": config_id})
+            deleted = result.rowcount > 0
+            if deleted:
+                self.logger.info(f"[TenantConfig] Eliminado tenant con id={config_id}")
+            return deleted
+        except SQLAlchemyError as e:
+            self.logger.error(f"[TenantConfig] Error eliminando id={config_id}: {e}")
+            return False
+
     # ------------------------------------------------------------------
     @staticmethod
     def _row_to_entity(row: dict) -> TenantConfig:
-        return TenantConfig(
+        config = TenantConfig(
             tenant_id=row["tenant_id"],
             bot_name=row["bot_name"],
             bot_persona=row["bot_persona"],
@@ -179,3 +210,6 @@ class MySQLTenantConfigRepository(TenantConfigRepository):
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
         )
+        if "id" in row:
+            config.id = row["id"]
+        return config

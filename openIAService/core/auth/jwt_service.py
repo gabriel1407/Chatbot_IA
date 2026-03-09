@@ -47,35 +47,37 @@ class JWTService:
     # Generación                                                           #
     # ------------------------------------------------------------------ #
 
-    def create_access_token(self, username: str, role: str = "admin") -> str:
+    def create_access_token(self, username: str, role: str = "admin", tenant_id: str = None) -> str:
         """Genera un access token válido por `jwt_access_token_ttl_minutes` minutos."""
         now = datetime.datetime.now(datetime.timezone.utc)
         payload = {
             "sub": username,
             "role": role,
+            "tenant_id": tenant_id,
             "type": "access",
             "iat": now,
             "exp": now + datetime.timedelta(minutes=self._access_ttl),
         }
         return jwt.encode(payload, self._secret, algorithm=_ALGORITHM)
 
-    def create_refresh_token(self, username: str, role: str = "admin") -> str:
+    def create_refresh_token(self, username: str, role: str = "admin", tenant_id: str = None) -> str:
         """Genera un refresh token válido por `jwt_refresh_token_ttl_days` días."""
         now = datetime.datetime.now(datetime.timezone.utc)
         payload = {
             "sub": username,
             "role": role,
+            "tenant_id": tenant_id,
             "type": "refresh",
             "iat": now,
             "exp": now + datetime.timedelta(days=self._refresh_ttl),
         }
         return jwt.encode(payload, self._secret, algorithm=_ALGORITHM)
 
-    def create_token_pair(self, username: str, role: str = "admin") -> dict:
+    def create_token_pair(self, username: str, role: str = "admin", tenant_id: str = None) -> dict:
         """Devuelve access + refresh token en un solo dict listo para responder."""
         return {
-            "access_token": self.create_access_token(username, role),
-            "refresh_token": self.create_refresh_token(username, role),
+            "access_token": self.create_access_token(username, role, tenant_id),
+            "refresh_token": self.create_refresh_token(username, role, tenant_id),
             "token_type": "Bearer",
             "expires_in": self._access_ttl * 60,   # segundos
         }

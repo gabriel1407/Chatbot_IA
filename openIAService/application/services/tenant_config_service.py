@@ -68,6 +68,13 @@ class TenantConfigService:
         self._set_cache(tenant_id, config)
         return config
 
+    def get_by_numeric_id(self, config_id: int) -> Optional[TenantConfig]:
+        """Obtiene una configuración directo desde la base de datos por su ID numérico."""
+        config = self._repo.find_by_numeric_id(config_id)
+        if config:
+            self._set_cache(config.tenant_id, config)
+        return config
+
     def save(self, config: TenantConfig) -> TenantConfig:
         """Guarda/actualiza y limpia la caché de ese tenant."""
         saved = self._repo.save(config)
@@ -78,6 +85,14 @@ class TenantConfigService:
     def delete(self, tenant_id: str) -> bool:
         result = self._repo.delete(tenant_id)
         self._invalidate(tenant_id)
+        return result
+
+    def delete_by_numeric_id(self, config_id: int) -> bool:
+        config = self._repo.find_by_numeric_id(config_id)
+        if not config:
+            return False
+        result = self._repo.delete_by_numeric_id(config_id)
+        self._invalidate(config.tenant_id)
         return result
 
     def list_all(self):

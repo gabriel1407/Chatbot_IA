@@ -28,7 +28,9 @@ logger = get_app_logger()
 _PUBLIC_ENDPOINTS = {
     "auth.login",
     "auth.refresh_token",
+    "auth.register",
     "admin.health_check_v2",
+    "subscriptions.list_plans",   # Ver precios sin autenticación
 }
 
 
@@ -46,6 +48,8 @@ def _validate() -> Optional[tuple]:
     Retorna None si es válido (o ruta pública), o una respuesta de error Flask.
     """
     # Rutas públicas: sin auth
+    if request.method == "OPTIONS":
+        return None
     if request.endpoint in _PUBLIC_ENDPOINTS:
         return None
 
@@ -90,3 +94,37 @@ def get_current_user() -> dict:
     Solo válido dentro de una request protegida por require_jwt.
     """
     return getattr(g, "current_user", {})
+
+
+def require_role(*roles: str):
+    """
+    Decorador / helper de autorización por rol.
+
+    Uso como decorador:
+        @require_role('admin')
+        def mi_ruta(): ...
+
+    Uso inline:
+        require_role('admin')  # lanza 403 si el rol no coincide
+    """
+    from core.exceptions.custom_exceptions import APIException
+
+    def _check():
+        current_role = get_current_user().get("role", "")
+        if current_role not in roles:
+            raise APIException(
+                f"Se requiere uno de los roles: {', '.join(roles)}",
+                403,
+                "FORBIDDEN",
+            )
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            _check()
+            return func(*args, **kwargs)
+        return wrapper
+
+    # Si se llama sin argumentos de función (uso inline), ejecuta el check
+    # y retorna el decorador preparado.
+    return decorator

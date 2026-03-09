@@ -40,6 +40,7 @@ filelock==3.18.0
 firebase-admin==6.8.0
 fireworks-ai==0.17.15
 Flask==3.0.3
+Flask-Cors==4.0.0
 Flask-Limiter==3.9.2
 flatbuffers==25.9.23
 frozenlist==1.6.0

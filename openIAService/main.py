@@ -1,4 +1,5 @@
 from flask import Flask, request
+from flask_cors import CORS
 from routes.whatsapp_routes import whatsapp_bp
 from routes.telegram_routes import telegram_bp
 from routes.file_routes import file_bp
@@ -10,6 +11,7 @@ from routes.chat_routes import chat_bp
 from routes.tenant_routes import tenant_bp
 from routes.auth_routes import auth_bp
 from routes.tenant_channel_routes import tenant_channel_bp
+from routes.subscription_routes import subscription_bp
 from core.config.settings import settings
 from services.context_cleanup_service import create_context_cleanup_service
 import logging
@@ -18,6 +20,7 @@ from core.config.dependencies import initialize_dependencies
 from core.exceptions.http_handlers import register_http_error_handlers
 
 app = Flask(__name__)
+CORS(app)
 app.secret_key = settings.secret_key
 app.config['UPLOAD_FOLDER'] = settings.upload_folder
 
@@ -34,6 +37,7 @@ app.register_blueprint(chat_bp)  # Chat con RAG integrado
 app.register_blueprint(tenant_bp)  # Configuración de tenants (clientes)
 app.register_blueprint(auth_bp)  # Autenticación JWT
 app.register_blueprint(tenant_channel_bp)  # Canales por tenant (multi-tenant routing)
+app.register_blueprint(subscription_bp)  # Planes y suscripciones
 
 # Inicializar dependencias al importar el módulo (útil para WSGI/Gunicorn)
 initialize_dependencies()

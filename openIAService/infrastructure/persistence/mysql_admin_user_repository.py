@@ -20,16 +20,45 @@ logger = get_infrastructure_logger()
 
 _CREATE_TABLE = text("""
     CREATE TABLE IF NOT EXISTS admin_users (
+        id            INT           AUTO_INCREMENT,
         username      VARCHAR(100)  NOT NULL,
+        email         VARCHAR(200)  NULL,
+        full_name     VARCHAR(200)  NULL,
         password_hash VARCHAR(256)  NOT NULL,
         password_salt VARCHAR(64)   NOT NULL,
-        role          VARCHAR(50)   NOT NULL DEFAULT 'admin',
+        role          VARCHAR(50)   NOT NULL DEFAULT 'user',
+        tenant_id     VARCHAR(100)  NULL,
         is_active     TINYINT(1)    NOT NULL DEFAULT 1,
         created_at    DATETIME      NOT NULL,
         last_login    DATETIME      NULL,
-        PRIMARY KEY (username)
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_username (username),
+        UNIQUE KEY uq_email (email),
+        INDEX idx_tenant_id (tenant_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """)
+
+# Migraciones idempotentes para instancias existentes
+_MIGRATIONS = [
+    text("""
+        ALTER TABLE admin_users
+        ADD COLUMN email     VARCHAR(200) NULL AFTER username,
+        ADD COLUMN full_name VARCHAR(200) NULL AFTER email
+    """),
+    # Asegurar índice único en email si no existe
+    text("""
+        CREATE UNIQUE INDEX uq_email ON admin_users (email)
+    """),
+    # Agregar auto-incremental ID para administrar usuarios por id
+    text("""
+        ALTER TABLE admin_users ADD COLUMN id INT AUTO_INCREMENT UNIQUE FIRST
+    """),
+    # Agregar tenant_id para asociacion de usuarios
+    text("""
+        ALTER TABLE admin_users ADD COLUMN tenant_id VARCHAR(100) NULL,
+        ADD INDEX idx_tenant_id (tenant_id)
+    """),
+]
 
 
 class AdminUserRepository:
@@ -53,6 +82,12 @@ class AdminUserRepository:
     def _ensure_table(self) -> None:
         with self.engine.begin() as conn:
             conn.execute(_CREATE_TABLE)
+            # Migraciones para tablas ya existentes
+            for migration in _MIGRATIONS:
+                try:
+                    conn.execute(migration)
+                except Exception:
+                    pass  # Si la columna ya existe en MySQL < 8 (no soporta IF NOT EXISTS)
 
     # ------------------------------------------------------------------ #
     # Seguridad de contraseñas                                            #
@@ -77,10 +112,11 @@ class AdminUserRepository:
     # CRUD                                                                 #
     # ------------------------------------------------------------------ #
 
-    def create_user(self, username: str, password: str, role: str = "admin") -> bool:
+    def create_user(self, username: str, password: str, role: str = "admin",
+                    email: str = None, full_name: str = None, tenant_id: str = None) -> bool:
         """
-        Crea un nuevo usuario admin.
-        Retorna False si el username ya existe.
+        Crea un nuevo usuario (Admin_user).
+        Retorna False si el username o email ya existe.
         """
         salt = self._generate_salt()
         pw_hash = self._hash_password(password, salt)
@@ -88,17 +124,20 @@ class AdminUserRepository:
 
         sql = text("""
             INSERT IGNORE INTO admin_users
-                (username, password_hash, password_salt, role, is_active, created_at)
+                (username, email, full_name, password_hash, password_salt, role, tenant_id, is_active, created_at)
             VALUES
-                (:username, :pw_hash, :salt, :role, 1, :now)
+                (:username, :email, :full_name, :pw_hash, :salt, :role, :tenant_id, 1, :now)
         """)
         try:
             with self.engine.begin() as conn:
                 result = conn.execute(sql, {
                     "username": username,
+                    "email": email,
+                    "full_name": full_name,
                     "pw_hash": pw_hash,
                     "salt": salt,
                     "role": role,
+                    "tenant_id": tenant_id,
                     "now": now,
                 })
             created = result.rowcount > 0
@@ -118,7 +157,7 @@ class AdminUserRepository:
         Actualiza last_login si el login es exitoso.
         """
         sql = text("""
-            SELECT username, password_hash, password_salt, role, is_active
+            SELECT username, password_hash, password_salt, role, tenant_id, is_active
             FROM admin_users
             WHERE username = :username
         """)
@@ -143,7 +182,7 @@ class AdminUserRepository:
 
         # Actualizar last_login en background sin bloquear
         self._update_last_login(username)
-        return {"username": row["username"], "role": row["role"]}
+        return {"username": row["username"], "role": row["role"], "tenant_id": row.get("tenant_id")}
 
     def _update_last_login(self, username: str) -> None:
         sql = text("UPDATE admin_users SET last_login = :now WHERE username = :username")
@@ -153,10 +192,71 @@ class AdminUserRepository:
         except SQLAlchemyError:
             pass  # No crítico
 
+    def register_user(self, username: str, email: str, password: str,
+                      full_name: str = None) -> tuple[bool, str]:
+        """
+        Auto-registro de nuevo usuario (rol 'user').
+        Retorna (True, "") si fue exitoso, o (False, mensaje_error).
+        """
+        if not email or "@" not in email:
+            return False, "Email inválido"
+        if len(password) < 8:
+            return False, "La contraseña debe tener al menos 8 caracteres"
+
+        # Verificar si email ya existe
+        if self.find_by_email(email):
+            return False, f"El email '{email}' ya está registrado"
+
+        # Por defecto, quienes se autorregistran son users sin tenant_id, el admin se lo asigna.
+        created = self.create_user(username, password, role="user",
+                                   email=email.lower().strip(), full_name=full_name)
+        if not created:
+            return False, f"El usuario '{username}' ya existe"
+        return True, ""
+
+    def find_by_email(self, email: str) -> Optional[dict]:
+        """Busca un usuario por email. Retorna el registro o None."""
+        sql = text("""
+            SELECT username, email, full_name, role, is_active, tenant_id
+            FROM admin_users WHERE email = :email
+        """)
+        try:
+            with self.engine.connect() as conn:
+                row = conn.execute(sql, {"email": email.lower().strip()}).mappings().first()
+            return dict(row) if row else None
+        except SQLAlchemyError:
+            return None
+
+    def get_user_info(self, username: str) -> Optional[dict]:
+        """Retorna la información de perfil de un usuario (sin datos de contraseña)."""
+        sql = text("""
+            SELECT id, username, email, full_name, role, tenant_id, is_active, created_at, last_login
+            FROM admin_users WHERE username = :username
+        """)
+        try:
+            with self.engine.connect() as conn:
+                row = conn.execute(sql, {"username": username}).mappings().first()
+            if not row:
+                return None
+            r = dict(row)
+            return {
+                "id":         r.get("id"),
+                "username":   r["username"],
+                "email":      r["email"],
+                "full_name":  r["full_name"],
+                "role":       r["role"],
+                "tenant_id":  r.get("tenant_id"),
+                "is_active":  bool(r["is_active"]),
+                "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+                "last_login": r["last_login"].isoformat() if r.get("last_login") else None,
+            }
+        except SQLAlchemyError:
+            return None
+
     def list_users(self) -> List[dict]:
         sql = text("""
-            SELECT username, role, is_active, created_at, last_login
-            FROM admin_users ORDER BY username
+            SELECT id, username, email, full_name, role, tenant_id, is_active, created_at, last_login
+            FROM admin_users ORDER BY id DESC
         """)
         try:
             with self.engine.connect() as conn:
@@ -166,14 +266,55 @@ class AdminUserRepository:
             logger.error(f"[AdminUser] Error listando usuarios: {e}")
             return []
 
-    def set_active(self, username: str, is_active: bool) -> bool:
-        sql = text("UPDATE admin_users SET is_active = :active WHERE username = :username")
+    def set_active(self, user_id: int, is_active: bool) -> bool:
+        sql = text("UPDATE admin_users SET is_active = :active WHERE id = :id")
         try:
             with self.engine.begin() as conn:
-                result = conn.execute(sql, {"active": int(is_active), "username": username})
+                result = conn.execute(sql, {"active": int(is_active), "id": user_id})
             return result.rowcount > 0
         except SQLAlchemyError as e:
-            logger.error(f"[AdminUser] Error actualizando estado de '{username}': {e}")
+            logger.error(f"[AdminUser] Error actualizando estado de id '{user_id}': {e}")
+            return False
+
+    def update_user(self, user_id: int, email: str = None, full_name: str = None, role: str = None, tenant_id: str = None) -> bool:
+        """Actualiza detalles del usuario (email, full_name, role, tenant_id)."""
+        updates = []
+        params = {"id": user_id}
+
+        if email is not None:
+            updates.append("email = :email")
+            params["email"] = email
+        if full_name is not None:
+            updates.append("full_name = :full_name")
+            params["full_name"] = full_name
+        if role is not None:
+            updates.append("role = :role")
+            params["role"] = role
+        if tenant_id is not None:
+            updates.append("tenant_id = :tenant_id")
+            params["tenant_id"] = tenant_id
+
+        if not updates:
+            return True
+
+        sql = text(f"UPDATE admin_users SET {', '.join(updates)} WHERE id = :id")
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(sql, params)
+            return result.rowcount > 0
+        except SQLAlchemyError as e:
+            logger.error(f"[AdminUser] Error actualizando usuario id '{user_id}': {e}")
+            return False
+
+    def delete_user(self, user_id: int) -> bool:
+        """Elimina un usuario permanentemente."""
+        sql = text("DELETE FROM admin_users WHERE id = :id")
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(sql, {"id": user_id})
+            return result.rowcount > 0
+        except SQLAlchemyError as e:
+            logger.error(f"[AdminUser] Error eliminando usuario id '{user_id}': {e}")
             return False
 
     def change_password(self, username: str, new_password: str) -> bool:

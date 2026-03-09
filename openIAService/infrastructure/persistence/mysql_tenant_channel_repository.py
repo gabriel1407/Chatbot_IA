@@ -33,6 +33,7 @@ class MySQLTenantChannelRepository(TenantChannelRepository):
             with engine.connect() as conn:
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS tenant_channels (
+                        id                INT AUTO_INCREMENT UNIQUE,
                         tenant_id         VARCHAR(100) NOT NULL,
                         channel           VARCHAR(30)  NOT NULL,
                         token             TEXT         NOT NULL,
@@ -48,8 +49,14 @@ class MySQLTenantChannelRepository(TenantChannelRepository):
                         INDEX idx_is_active (is_active)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
                 """))
-                conn.commit()
             self._logger.info("Tabla tenant_channels lista")
+            try:
+                # Migración para asegurar id
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE tenant_channels ADD COLUMN id INT AUTO_INCREMENT UNIQUE FIRST"))
+                    conn.commit()
+            except Exception:
+                pass
         except Exception as e:
             self._logger.error(f"Error creando tabla tenant_channels: {e}")
             raise
@@ -63,7 +70,7 @@ class MySQLTenantChannelRepository(TenantChannelRepository):
             r = dict(row._mapping)
         else:
             r = dict(row)
-        return TenantChannel(
+        ch = TenantChannel(
             tenant_id=r["tenant_id"],
             channel=r["channel"],
             token=r["token"],
@@ -75,6 +82,9 @@ class MySQLTenantChannelRepository(TenantChannelRepository):
             created_at=r.get("created_at") or datetime.now(),
             updated_at=r.get("updated_at") or datetime.now(),
         )
+        if "id" in r:
+            ch.id = r["id"]
+        return ch
 
     # ------------------------------------------------------------------ #
     # CRUD                                                                 #
@@ -147,6 +157,20 @@ class MySQLTenantChannelRepository(TenantChannelRepository):
             self._logger.error(f"Error buscando tenant por phone_number_id {phone_number_id}: {e}")
             return None
 
+    def find_by_numeric_id(self, channel_id: int) -> Optional[TenantChannel]:
+        try:
+            from sqlalchemy import create_engine, text
+            engine = create_engine(self._db_url, pool_pre_ping=True)
+            with engine.connect() as conn:
+                row = conn.execute(text("""
+                    SELECT * FROM tenant_channels
+                    WHERE id = :id AND is_active = 1
+                """), {"id": channel_id}).fetchone()
+            return self._row_to_entity(row) if row else None
+        except Exception as e:
+            self._logger.error(f"Error buscando canal por id {channel_id}: {e}")
+            return None
+
     def find_by_tenant_id(self, tenant_id: str) -> List[TenantChannel]:
         try:
             from sqlalchemy import create_engine, text
@@ -187,4 +211,19 @@ class MySQLTenantChannelRepository(TenantChannelRepository):
             return True
         except Exception as e:
             self._logger.error(f"Error eliminando canal {channel} del tenant {tenant_id}: {e}")
+            return False
+
+    def delete_by_numeric_id(self, channel_id: int) -> bool:
+        try:
+            from sqlalchemy import create_engine, text
+            engine = create_engine(self._db_url, pool_pre_ping=True)
+            with engine.connect() as conn:
+                conn.execute(text("""
+                    UPDATE tenant_channels SET is_active = 0
+                    WHERE id = :id
+                """), {"id": channel_id})
+                conn.commit()
+            return True
+        except Exception as e:
+            self._logger.error(f"Error eliminando canal por id {channel_id}: {e}")
             return False

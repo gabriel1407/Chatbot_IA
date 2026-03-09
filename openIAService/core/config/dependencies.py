@@ -101,6 +101,20 @@ def initialize_dependencies():
     except Exception as e:
         logger.warning(f"AdminUserRepository no inicializado: {e}")
 
+    # --- SubscriptionRepository (planes y suscripciones de usuarios) ---
+    try:
+        from infrastructure.persistence.mysql_subscription_repository import SubscriptionRepository
+
+        db_url = getattr(settings, "database_url", None)
+        if db_url and db_url.lower().startswith("mysql"):
+            subscription_repo = SubscriptionRepository(db_url)
+            DependencyContainer.register("SubscriptionRepository", subscription_repo)
+            logger.info("SubscriptionRepository registrado correctamente (planes: Free/Starter/Pro/Enterprise)")
+        else:
+            logger.warning("SubscriptionRepository requiere MySQL.")
+    except Exception as e:
+        logger.warning(f"SubscriptionRepository no inicializado: {e}")
+
     # --- TenantChannelService (routing multi-tenant por canal) ---
     try:
         from infrastructure.persistence.mysql_tenant_channel_repository import MySQLTenantChannelRepository

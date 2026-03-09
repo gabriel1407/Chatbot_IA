@@ -14,6 +14,7 @@ class TenantConfig:
     Un tenant = una empresa que contrata el servicio del bot.
     """
     tenant_id: str                          # Identificador único del cliente (ej: "ferreteria_lopez")
+    id: Optional[int] = None                # Internal ID for table
 
     # --- Identidad del bot ---
     bot_name: str = "Asistente Virtual"
@@ -62,6 +63,7 @@ class TenantConfig:
 
     def to_dict(self) -> dict:
         return {
+            "id": self.id,
             "tenant_id": self.tenant_id,
             "bot_name": self.bot_name,
             "bot_persona": self.bot_persona,
@@ -103,4 +105,5 @@ class TenantConfig:
             is_active=bool(data.get("is_active", True)),
             created_at=datetime.fromisoformat(created) if isinstance(created, str) else created,
             updated_at=datetime.fromisoformat(updated) if isinstance(updated, str) else updated,
+            id=data.get("id"),
         )

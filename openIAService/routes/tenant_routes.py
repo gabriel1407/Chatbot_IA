@@ -15,7 +15,7 @@ Endpoints:
 from flask import Blueprint, request, jsonify
 
 from core.config.dependencies import DependencyContainer
-from core.auth.jwt_middleware import require_jwt
+from core.auth.jwt_middleware import require_jwt, get_current_user
 from core.exceptions.custom_exceptions import APIException
 from core.logging.logger import get_app_logger
 from domain.entities.tenant_config import TenantConfig
@@ -36,9 +36,21 @@ def _get_service():
 # -----------------------------------------------------------------------
 @tenant_bp.route("/", methods=["GET"])
 def list_tenants():
-    """Lista todos los tenants registrados en DB."""
+    """Lista los tenants registrados. Users solo ven el suyo."""
+    user = get_current_user()
+    role = user.get("role")
+    user_tenant = user.get("tenant_id")
+
     service = _get_service()
-    tenants = service.list_all()
+    if role == "admin":
+        tenants = service.list_all()
+    else:
+        # Users solo pueden ver su propio tenant
+        if not user_tenant:
+            return jsonify({"ok": True, "count": 0, "tenants": []}), 200
+        t = service.get(user_tenant)
+        tenants = [t] if t else []
+
     return jsonify({
         "ok": True,
         "count": len(tenants),
@@ -52,8 +64,14 @@ def list_tenants():
 @tenant_bp.route("/<tenant_id>", methods=["GET"])
 def get_tenant(tenant_id: str):
     """Obtiene la configuración de un tenant específico."""
+    user = get_current_user()
+    if user.get("role") != "admin" and user.get("tenant_id") != tenant_id:
+        raise APIException("No tienes permiso para ver este tenant", 403, "FORBIDDEN")
+
     service = _get_service()
     config = service.get(tenant_id)
+    if not config:
+        raise APIException("Tenant no encontrado", 404, "NOT_FOUND")
     return jsonify({"ok": True, "tenant": config.to_dict()}), 200
 
 
@@ -91,20 +109,25 @@ def create_or_replace_tenant():
     if not tenant_id:
         raise APIException("El campo 'tenant_id' es requerido", 400, "VALIDATION_ERROR")
 
+    user = get_current_user()
+    # Users no pueden crear otro tenant que no sea el suyo
+    if user.get("role") != "admin" and user.get("tenant_id") != tenant_id:
+        raise APIException("No tienes permisos para configurar este tenant", 403, "FORBIDDEN")
+
     config = TenantConfig.from_dict({"tenant_id": tenant_id, **data})
     service = _get_service()
     saved = service.save(config)
-    logger.info(f"[TenantRoutes] Tenant '{tenant_id}' creado/reemplazado")
+    logger.info(f"[TenantRoutes] Tenant '{tenant_id}' creado/reemplazado por '{user.get('sub')}'")
     return jsonify({"ok": True, "tenant": saved.to_dict()}), 201
 
 
 # -----------------------------------------------------------------------
-# PATCH /api/tenant/<tenant_id>
+# PATCH /api/tenant/<int:id>
 # -----------------------------------------------------------------------
-@tenant_bp.route("/<tenant_id>", methods=["PATCH"])
-def update_tenant(tenant_id: str):
+@tenant_bp.route("/<int:config_id>", methods=["PATCH"])
+def update_tenant(config_id: int):
     """
-    Actualiza solo los campos que se envíen en el body.
+    Actualiza solo los campos que se envíen en el body usando ID numérico.
     El resto mantiene sus valores actuales.
 
     Body JSON: cualquier subconjunto de campos de TenantConfig.
@@ -114,8 +137,13 @@ def update_tenant(tenant_id: str):
         raise APIException("Se requiere un body JSON", 400, "INVALID_JSON")
 
     service = _get_service()
-    # Cargamos la config actual (o default si no existe)
-    config = service.get(tenant_id)
+    config = service.get_by_numeric_id(config_id)
+    if not config:
+        raise APIException(f"Config con ID {config_id} no encontrada", 404, "NOT_FOUND")
+
+    user = get_current_user()
+    if user.get("role") != "admin" and user.get("tenant_id") != config.tenant_id:
+        raise APIException("No tienes permisos para modificar este tenant", 403, "FORBIDDEN")
 
     # Aplicamos solo los campos recibidos
     updatable_fields = [
@@ -124,35 +152,39 @@ def update_tenant(tenant_id: str):
         "rag_enabled", "rag_top_k", "rag_min_similarity",
         "max_response_tokens", "temperature", "web_search_enabled", "is_active",
     ]
-    # Mapeo de alias JSON → atributo Python
-    field_aliases = {"out_of_scope_message": "out_of_scope_message"}
 
     for key in updatable_fields:
-        json_key = key  # mismo nombre en JSON
-        if json_key in data:
-            setattr(config, key, data[json_key])
+        if key in data:
+            setattr(config, key, data[key])
 
-    # Aseguramos que el tenant_id no cambie
-    config.tenant_id = tenant_id
     saved = service.save(config)
-    logger.info(f"[TenantRoutes] Tenant '{tenant_id}' actualizado parcialmente")
+    logger.info(f"[TenantRoutes] Tenant ID '{config_id}' actualizado parcialmente")
     return jsonify({"ok": True, "tenant": saved.to_dict()}), 200
 
 
 # -----------------------------------------------------------------------
 # DELETE /api/tenant/<tenant_id>
 # -----------------------------------------------------------------------
-@tenant_bp.route("/<tenant_id>", methods=["DELETE"])
-def delete_tenant(tenant_id: str):
-    """Elimina la configuración de un tenant."""
-    if tenant_id == "default":
-        raise APIException("No se puede eliminar el tenant 'default'", 400, "FORBIDDEN")
+@tenant_bp.route("/<int:config_id>", methods=["DELETE"])
+def delete_tenant(config_id: int):
+    """Elimina la configuración de un tenant mediante su id numérico."""
     service = _get_service()
-    deleted = service.delete(tenant_id)
+    config = service.get_by_numeric_id(config_id)
+    if not config:
+        raise APIException("Tenant no encontrado", 404, "NOT_FOUND")
+    if config.tenant_id == "default":
+        raise APIException("No se puede eliminar el tenant 'default'", 400, "FORBIDDEN")
+        
+    user = get_current_user()
+    if user.get("role") != "admin" and user.get("tenant_id") != config.tenant_id:
+        raise APIException("No tienes permisos para eliminar este tenant", 403, "FORBIDDEN")
+    
+    deleted = service.delete_by_numeric_id(config_id)
     if not deleted:
-        raise APIException(f"Tenant '{tenant_id}' no encontrado", 404, "NOT_FOUND")
-    logger.info(f"[TenantRoutes] Tenant '{tenant_id}' eliminado")
-    return jsonify({"ok": True, "message": f"Tenant '{tenant_id}' eliminado"}), 200
+        raise APIException(f"No se pudo eliminar el tenant id {config_id}", 400, "BAD_REQUEST")
+    
+    logger.info(f"[TenantRoutes] Tenant con id '{config_id}' eliminado")
+    return jsonify({"ok": True, "message": f"Tenant eliminado"}), 200
 
 
 # -----------------------------------------------------------------------

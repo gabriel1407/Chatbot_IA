@@ -20,6 +20,8 @@ class TenantChannel:
     channel: str                          # "whatsapp" | "telegram"
     token: str                            # Token de acceso del canal
     is_active: bool = True
+    id: Optional[int] = None              # Internal ID for table
+
 
     # WhatsApp
     phone_number_id: Optional[str] = None  # ID del número de WhatsApp Business
@@ -36,6 +38,7 @@ class TenantChannel:
     def to_dict(self, mask_token: bool = True) -> dict:
         token_display = f"{self.token[:8]}...{self.token[-4:]}" if mask_token and len(self.token) > 12 else self.token
         return {
+            "id": self.id,
             "tenant_id": self.tenant_id,
             "channel": self.channel,
             "token": token_display,
@@ -59,4 +62,5 @@ class TenantChannel:
             verify_token=data.get("verify_token"),
             bot_username=data.get("bot_username"),
             display_name=data.get("display_name"),
+            id=data.get("id"),
         )

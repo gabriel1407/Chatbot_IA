@@ -59,6 +59,10 @@ class TenantChannelService:
 
         return result
 
+    def get_by_numeric_id(self, channel_id: int) -> Optional[TenantChannel]:
+        """Busca directamente un canal por su ID numérico en BD."""
+        return self._repo.find_by_numeric_id(channel_id)
+
     def get_channel(self, tenant_id: str, channel: str) -> Optional[TenantChannel]:
         """Obtiene las credenciales de un canal para un tenant."""
         key = (tenant_id, channel)
@@ -95,6 +99,14 @@ class TenantChannelService:
     def delete(self, tenant_id: str, channel: str) -> bool:
         ok = self._repo.delete(tenant_id, channel)
         self.invalidate_cache(tenant_id, channel)
+        return ok
+
+    def delete_by_numeric_id(self, channel_id: int) -> bool:
+        ch = self._repo.find_by_numeric_id(channel_id)
+        if not ch:
+            return False
+        ok = self._repo.delete_by_numeric_id(channel_id)
+        self.invalidate_cache(ch.tenant_id, ch.channel)
         return ok
 
     def list_all(self) -> List[TenantChannel]:
