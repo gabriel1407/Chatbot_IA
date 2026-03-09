@@ -27,7 +27,7 @@ def list_all():
     user_tenant = user.get("tenant_id")
 
     svc = _get_service()
-    if role == "admin":
+    if role == "admin" and not user_tenant:
         channels = svc.list_all()
     else:
         if not user_tenant:
@@ -41,7 +41,7 @@ def list_all():
 def list_by_tenant(tenant_id: str):
     """Lista todos los canales de un tenant."""
     user = get_current_user()
-    if user.get("role") != "admin" and user.get("tenant_id") != tenant_id:
+    if not (user.get("role") == "admin" and not user.get("tenant_id")) and user.get("tenant_id") != tenant_id:
         from core.exceptions.custom_exceptions import APIException
         raise APIException("No tienes permiso para ver los canales de este tenant", 403, "FORBIDDEN")
 
@@ -81,7 +81,7 @@ def create_or_update():
         return jsonify({"ok": False, "error": "token es requerido"}), 400
 
     user = get_current_user()
-    if user.get("role") != "admin" and user.get("tenant_id") != tenant_id:
+    if not (user.get("role") == "admin" and not user.get("tenant_id")) and user.get("tenant_id") != tenant_id:
         from core.exceptions.custom_exceptions import APIException
         raise APIException("No tienes permisos para configurar canales en este tenant", 403, "FORBIDDEN")
 
@@ -147,7 +147,7 @@ def delete_channel(channel_id: int):
         return jsonify({"ok": False, "error": "Canal no encontrado"}), 404
         
     user = get_current_user()
-    if user.get("role") != "admin" and user.get("tenant_id") != ch.tenant_id:
+    if not (user.get("role") == "admin" and not user.get("tenant_id")) and user.get("tenant_id") != ch.tenant_id:
         from core.exceptions.custom_exceptions import APIException
         raise APIException("No tienes permisos para eliminar este canal", 403, "FORBIDDEN")
         
@@ -164,7 +164,7 @@ def clear_cache(channel_id: int):
         return jsonify({"ok": False, "error": "Canal no encontrado"}), 404
         
     user = get_current_user()
-    if user.get("role") != "admin" and user.get("tenant_id") != ch.tenant_id:
+    if not (user.get("role") == "admin" and not user.get("tenant_id")) and user.get("tenant_id") != ch.tenant_id:
         from core.exceptions.custom_exceptions import APIException
         raise APIException("No tienes permisos sobre este canal", 403, "FORBIDDEN")
         
@@ -181,7 +181,7 @@ def edit_channel(channel_id: int):
         return jsonify({"ok": False, "error": "Canal no encontrado"}), 404
         
     user = get_current_user()
-    if user.get("role") != "admin" and user.get("tenant_id") != ch.tenant_id:
+    if not (user.get("role") == "admin" and not user.get("tenant_id")) and user.get("tenant_id") != ch.tenant_id:
         from core.exceptions.custom_exceptions import APIException
         raise APIException("No tienes permisos para modificar este canal", 403, "FORBIDDEN")
 

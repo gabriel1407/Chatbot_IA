@@ -42,10 +42,10 @@ def list_tenants():
     user_tenant = user.get("tenant_id")
 
     service = _get_service()
-    if role == "admin":
+    if role == "admin" and not user_tenant:
         tenants = service.list_all()
     else:
-        # Users solo pueden ver su propio tenant
+        # Users o Admins locales solo pueden ver su propio tenant
         if not user_tenant:
             return jsonify({"ok": True, "count": 0, "tenants": []}), 200
         t = service.get(user_tenant)
@@ -65,7 +65,8 @@ def list_tenants():
 def get_tenant(tenant_id: str):
     """Obtiene la configuración de un tenant específico."""
     user = get_current_user()
-    if user.get("role") != "admin" and user.get("tenant_id") != tenant_id:
+    # Si eres admin sin tenant general, o tu tenant_id coincide con el solicitado
+    if not (user.get("role") == "admin" and not user.get("tenant_id")) and user.get("tenant_id") != tenant_id:
         raise APIException("No tienes permiso para ver este tenant", 403, "FORBIDDEN")
 
     service = _get_service()
@@ -111,7 +112,7 @@ def create_or_replace_tenant():
 
     user = get_current_user()
     # Users no pueden crear otro tenant que no sea el suyo
-    if user.get("role") != "admin" and user.get("tenant_id") != tenant_id:
+    if not (user.get("role") == "admin" and not user.get("tenant_id")) and user.get("tenant_id") != tenant_id:
         raise APIException("No tienes permisos para configurar este tenant", 403, "FORBIDDEN")
 
     config = TenantConfig.from_dict({"tenant_id": tenant_id, **data})
@@ -142,7 +143,7 @@ def update_tenant(config_id: int):
         raise APIException(f"Config con ID {config_id} no encontrada", 404, "NOT_FOUND")
 
     user = get_current_user()
-    if user.get("role") != "admin" and user.get("tenant_id") != config.tenant_id:
+    if not (user.get("role") == "admin" and not user.get("tenant_id")) and user.get("tenant_id") != config.tenant_id:
         raise APIException("No tienes permisos para modificar este tenant", 403, "FORBIDDEN")
 
     # Aplicamos solo los campos recibidos
@@ -176,7 +177,7 @@ def delete_tenant(config_id: int):
         raise APIException("No se puede eliminar el tenant 'default'", 400, "FORBIDDEN")
         
     user = get_current_user()
-    if user.get("role") != "admin" and user.get("tenant_id") != config.tenant_id:
+    if not (user.get("role") == "admin" and not user.get("tenant_id")) and user.get("tenant_id") != config.tenant_id:
         raise APIException("No tienes permisos para eliminar este tenant", 403, "FORBIDDEN")
     
     deleted = service.delete_by_numeric_id(config_id)
