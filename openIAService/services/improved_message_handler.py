@@ -366,12 +366,49 @@ class ImprovedMessageHandler:
             )
 
             from core.config.settings import settings
+            
+            # --- INTERCEPT ADMIN PAYMENT REVIEW ---
+            if str(user_id) == str(settings.admin_whatsapp_number):
+                import re
+                text_content = processed_msg.processed_content.strip()
+                match = re.match(r'^(SI|NO)\s+(\d+)(?:\s+(.*))?$', text_content, re.IGNORECASE)
+                if match:
+                    action_cmd = match.group(1).upper()
+                    proof_id = int(match.group(2))
+                    note = match.group(3) or "Procesado por admin via WhatsApp"
+                    action = "confirm" if action_cmd == "SI" else "reject"
+                    
+                    self.logger.info(f"[AdminIntercept] Ejecutando review_payment proof_id={proof_id} action={action}")
+                    try:
+                        from core.mcp.mcp_client import MCPClient
+                        client = MCPClient()
+                        tool_result = client.call_tool("review_payment", {
+                            "proof_id": proof_id, 
+                            "action": action, 
+                            "note": note
+                        })
+                        final_content = f"Resultado de accion {action_cmd}:\n{tool_result}"
+                    except Exception as e:
+                        self.logger.error(f"Error MCP tool: {e}")
+                        final_content = f"❌ Error ejecutando comando de pago: {e}"
+                        
+                    self.add_message_use_case.execute(
+                        user_id=user_id,
+                        message_content=final_content,
+                        message_role=MessageRole.ASSISTANT,
+                        context_id=conversation.context_id,
+                        auto_detect_topic=False,
+                    )
+                    return {"content": final_content, "thinking": "", "context_id": conversation.context_id}
+            # ----------------------------------------
+
             if not settings.rag_enabled:
                 traced = self.response_generation_use_case.generate_legacy_response_with_trace(
                     user_id=user_id,
                     processed_msg=processed_msg,
                     context_id=conversation.context_id,
                     include_thinking=include_thinking,
+                    tenant_id=tenant_id or "default",
                 )
             else:
                 rag_context = None
@@ -389,6 +426,7 @@ class ImprovedMessageHandler:
                     rag_context=rag_context,
                     rag_enabled=True,
                     include_thinking=include_thinking,
+                    tenant_id=tenant_id or "default",
                 )
 
             final_content = traced.get("content", "")

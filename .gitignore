@@ -7,3 +7,4 @@ openIAService/settings.ini
 .env
 openIAService/.env
 openIAService/.env.*
+uploads/

@@ -276,6 +276,36 @@ def upload_payment_proof():
         subscription_id=sub_id_for_proof,
     )
 
+    # ── Notificar al Administrador por WhatsApp ───────────────────────────────
+    from core.config.settings import settings
+    admin_number = settings.admin_whatsapp_number
+    if admin_number:
+        from services.channel_adapters import get_unified_channel_service
+        channel_service = get_unified_channel_service()
+        
+        amount = analysis.get("amount", "Desconocido")
+        currency = analysis.get("currency", "")
+        ref = analysis.get("reference", "Sin ref")
+        bank = analysis.get("bank", "Desconocido")
+        
+        msg_text = (
+            f"🔔 *Nuevo Comprobante de Pago*\n\n"
+            f"👤 Usuario: {username}\n"
+            f"📦 Plan: {plan['name']}\n"
+            f"💰 Monto Detectado: {amount} {currency}\n"
+            f"🔖 Referencia: {ref} (Banco: {bank})\n\n"
+            f"Para *aprobar* este pago, respóndeme:\n"
+            f"`SI {proof_id}`\n\n"
+            f"Para *rechazarlo*, respóndeme:\n"
+            f"`NO {proof_id} [motivo]`"
+        )
+        
+        channel_service.send_outgoing_message(
+            channel_name="whatsapp",
+            recipient_id=admin_number,
+            content=msg_text
+        )
+
     response = {
         "ok":       True,
         "proof_id": proof_id,

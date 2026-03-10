@@ -157,6 +157,14 @@ class WhatsAppAdapter(ChannelAdapter):
         
         if "text" in message:
             return message["text"].get("body", ""), MessageType.TEXT, metadata
+            
+        elif "interactive" in message:
+            interactive = message["interactive"]
+            # WhatsApp button replies or list replies
+            if interactive.get("type") == "button_reply":
+                return interactive["button_reply"].get("title", ""), MessageType.TEXT, metadata
+            elif interactive.get("type") == "list_reply":
+                return interactive["list_reply"].get("title", ""), MessageType.TEXT, metadata
         
         elif "image" in message:
             image = message["image"]
@@ -189,6 +197,10 @@ class WhatsAppAdapter(ChannelAdapter):
             return f"Documento: {filename}", MessageType.DOCUMENT, metadata
         
         else:
+            # Fallback en caso de que WhatsApp envíe texto en una clave inesperada o formato simple
+            fallback_text = message.get("text", {}).get("body", "") or message.get("body", "")
+            if fallback_text:
+                return fallback_text, MessageType.TEXT, metadata
             return "Mensaje no reconocido", MessageType.TEXT, metadata
     
     def send_message(self, message: OutgoingMessage) -> bool:
@@ -462,6 +474,7 @@ class UnifiedChannelService:
             if not incoming_message:
                 if self._is_ignorable_event(channel=channel, raw_data=raw_data):
                     self.logger.info(f"Evento de {channel.value} ignorado (no es mensaje de usuario)")
+                    self.logger.warning(f"[DEBUG] Webhook raw_data ignorado: {raw_data}")
                     return True
 
                 self.logger.warning(f"No se pudo parsear mensaje de {channel.value}")

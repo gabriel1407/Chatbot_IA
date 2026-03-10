@@ -10,13 +10,14 @@ from infrastructure.ai.gemini_adapter import GeminiAdapter
 from infrastructure.ai.ollama_adapter import OllamaAdapter
 
 
-def get_ai_provider() -> AIProvider:
+def get_ai_provider(provider_name: Optional[str] = None) -> AIProvider:
     """Devuelve una instancia de `AIProvider` según la configuración.
 
-    - Lee `settings.ai_provider` y crea el adaptador correspondiente.
+    - Si se provee `provider_name`, usa ese.
+    - Si no, lee `settings.ai_provider`.
     - Por defecto devuelve `OpenAIAdapter`.
     """
-    provider = (settings.ai_provider or "openai").lower()
+    provider = (provider_name or settings.ai_provider or "openai").lower()
     if provider == "openai":
         return OpenAIAdapter(settings)
     if provider == "gemini":

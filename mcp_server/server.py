@@ -14,6 +14,7 @@ from tools.chatbot     import register as register_chatbot
 from tools.rag         import register as register_rag
 from tools.tenant      import register as register_tenant
 from tools.context     import register as register_context
+from tools.payment     import register as register_payment
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +57,8 @@ register_chatbot(mcp)
 register_rag(mcp)
 register_tenant(mcp)
 register_context(mcp)
+register_payment(mcp)
+register_payment(mcp)
 
 # ---------------------------------------------------------------------------
 # Entry point

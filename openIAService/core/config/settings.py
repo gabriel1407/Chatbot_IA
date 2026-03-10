@@ -66,9 +66,11 @@ class Settings(BaseSettings):
     openai_max_tokens: int = 600
     openai_temperature: float = 0.7
 
-    # Multi-provider AI settings
     # Which provider to use by default: 'openai', 'gemini', 'ollama', etc.
     ai_provider: str = Field(default="ollama")
+    
+    # Provider for embeddings (defaults to ai_provider if None)
+    embedding_provider: Optional[str] = Field(default=None, env="EMBEDDING_PROVIDER")
 
     # Gemini (Google) credentials / endpoint (optional)
     gemini_api_key: Optional[str] = Field(None, env="GEMINI_API_KEY")
@@ -107,6 +109,7 @@ class Settings(BaseSettings):
     whatsapp_verify_token: str = Field(
         default="E23431A21A991BE82FF3D79D5F1F8", env="WHATSAPP_VERIFY_TOKEN"
     )
+    admin_whatsapp_number: Optional[str] = Field(None, env="ADMIN_WHATSAPP_NUMBER")
     
     # SerpAPI (búsqueda web)
     serpapi_key: Optional[str] = Field(None, env="SERPAPI_KEY")

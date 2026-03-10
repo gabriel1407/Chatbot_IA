@@ -7,6 +7,7 @@ import re
 from typing import Optional, List, Any, Protocol
 
 from core.logging.logger import get_application_logger
+from core.ai.providers import AIProvider
 
 
 class ContextPort(Protocol):
@@ -21,7 +22,7 @@ class WebAssistPort(Protocol):
 
 
 class AIProviderFactoryPort(Protocol):
-    def get_provider(self): ...
+    def get_provider(self, provider_name: Optional[str] = None) -> AIProvider: ...
 
 
 class RAGSearchPort(Protocol):
@@ -56,7 +57,7 @@ class ResponseGenerationUseCase:
     # Helpers de configuración desde DB                                     #
     # ------------------------------------------------------------------ #
 
-    def _get_system_prompt(self) -> str:
+    def _get_system_prompt(self, tenant_id: str = "default") -> str:
         """Carga el system prompt del tenant desde la DB (con caché)."""
         if self._tenant_config_service is None:
             return (
@@ -64,14 +65,13 @@ class ResponseGenerationUseCase:
                 f"{self.IDENTITY_POLICY}"
             )
         try:
-            from application.services.tenant_config_service import DEFAULT_TENANT_ID
-            config = self._tenant_config_service.get(DEFAULT_TENANT_ID)
+            config = self._tenant_config_service.get(tenant_id)
             return config.get_full_system_prompt()
         except Exception as e:
-            self.logger.warning(f"[ResponseGeneration] Error cargando config de tenant: {e}")
+            self.logger.warning(f"[ResponseGeneration] Error cargando config de tenant '{tenant_id}': {e}")
             return f"Eres un asistente útil. {self.IDENTITY_POLICY}"
 
-    def _get_rag_system_prompt(self) -> str:
+    def _get_rag_system_prompt(self, tenant_id: str = "default") -> str:
         """System prompt para respuestas con contexto RAG."""
         if self._tenant_config_service is None:
             return (
@@ -80,16 +80,43 @@ class ResponseGenerationUseCase:
                 f"{self.IDENTITY_POLICY}"
             )
         try:
-            from application.services.tenant_config_service import DEFAULT_TENANT_ID
-            config = self._tenant_config_service.get(DEFAULT_TENANT_ID)
+            config = self._tenant_config_service.get(tenant_id)
             return (
                 f"{config.get_full_system_prompt()}\n\n"
                 "Responde SOLO usando la información proporcionada como contexto. "
                 "Si la respuesta no se encuentra en el contexto, indícalo claramente."
             )
         except Exception as e:
-            self.logger.warning(f"[ResponseGeneration] Error cargando config RAG de tenant: {e}")
+            self.logger.warning(f"[ResponseGeneration] Error cargando config RAG de tenant '{tenant_id}': {e}")
             return f"Eres un asistente útil. {self.IDENTITY_POLICY}"
+
+    def _get_ai_model(self, tenant_id: str = "default") -> Optional[str]:
+        """Obtiene el modelo de IA específico seleccionado por el tenant."""
+        if self._tenant_config_service is None:
+            return None
+        try:
+            config = self._tenant_config_service.get(tenant_id)
+            model = getattr(config, "ai_model", None)
+            if model:
+                self.logger.info(f"[ResponseGeneration] Usando modelo específico del tenant '{tenant_id}': {model}")
+            return model
+        except Exception as e:
+            self.logger.warning(f"[ResponseGeneration] Error cargando model de tenant '{tenant_id}': {e}")
+            return None
+
+    def _get_ai_provider_name(self, tenant_id: str = "default") -> Optional[str]:
+        """Obtiene el proveedor de IA (openai/gemini/ollama) del tenant."""
+        if self._tenant_config_service is None:
+            return None
+        try:
+            config = self._tenant_config_service.get(tenant_id)
+            provider = getattr(config, "ai_provider", None)
+            if provider:
+                self.logger.info(f"[ResponseGeneration] Usando proveedor específico del tenant '{tenant_id}': {provider}")
+            return provider
+        except Exception as e:
+            self.logger.warning(f"[ResponseGeneration] Error cargando provider de tenant '{tenant_id}': {e}")
+            return None
 
     def search_rag_context(
         self,
@@ -127,16 +154,17 @@ class ResponseGenerationUseCase:
         processed_msg: Any,
         rag_context: Optional[List[dict]] = None,
         rag_enabled: bool = True,
+        tenant_id: str = "default",
     ) -> str:
         """Genera respuesta del asistente según configuración y contexto."""
         try:
             if not rag_enabled:
-                return self.generate_legacy_response(user_id, processed_msg, context_id=context_id)
+                return self.generate_legacy_response(user_id, processed_msg, context_id=context_id, tenant_id=tenant_id)
 
             if rag_context:
-                return self._generate_rag_response(processed_msg, rag_context)
+                return self._generate_rag_response(processed_msg, rag_context, tenant_id=tenant_id)
 
-            return self._generate_plain_ai_response(processed_msg)
+            return self._generate_plain_ai_response(processed_msg, tenant_id=tenant_id)
 
         except Exception as e:
             self.logger.error(f"Error generando respuesta con IA: {e}")
@@ -150,6 +178,7 @@ class ResponseGenerationUseCase:
         rag_context: Optional[List[dict]] = None,
         rag_enabled: bool = True,
         include_thinking: bool = False,
+        tenant_id: str = "default",
     ) -> dict:
         """Genera respuesta y, opcionalmente, retorna traza de thinking si el proveedor la soporta."""
         try:
@@ -159,6 +188,7 @@ class ResponseGenerationUseCase:
                     processed_msg=processed_msg,
                     context_id=context_id,
                     include_thinking=include_thinking,
+                    tenant_id=tenant_id,
                 )
 
             if rag_context:
@@ -166,6 +196,7 @@ class ResponseGenerationUseCase:
                     processed_msg=processed_msg,
                     rag_context=rag_context,
                     include_thinking=include_thinking,
+                    tenant_id=tenant_id,
                 )
 
             # RAG habilitado pero sin documentos relevantes:
@@ -174,11 +205,12 @@ class ResponseGenerationUseCase:
             url = self.web_assist_port.extract_url(prompt)
             if url:
                 self.logger.info(f"[WebAssist] URL detectada en mensaje → usando read_webpage")
+                import re
                 question = re.sub(r'https?://\S+', '', prompt).strip()
                 web_result = self.web_assist_port.summarize_link(url, question or None)
                 return {"content": web_result, "thinking": ""}
 
-            if self._should_use_web_search_with_llm(prompt):
+            if self._should_use_web_search_with_llm(prompt, tenant_id=tenant_id):
                 self.logger.info(f"[WebAssist] Intención WEB detectada → ejecutando web_search via MCP")
                 web_result = self.web_assist_port.run_web_pipeline(prompt)
                 return {"content": web_result, "thinking": ""}
@@ -186,6 +218,7 @@ class ResponseGenerationUseCase:
             return self._generate_plain_ai_response_with_trace(
                 processed_msg=processed_msg,
                 include_thinking=include_thinking,
+                tenant_id=tenant_id,
             )
         except Exception as e:
             self.logger.error(f"Error generando respuesta con traza: {e}")
@@ -200,12 +233,14 @@ class ResponseGenerationUseCase:
         user_id: str,
         processed_msg: Any,
         context_id: Optional[str] = None,
+        tenant_id: str = "default",
     ) -> str:
         """Fallback legacy cuando RAG está deshabilitado."""
         try:
             current_context_id = context_id or "default"
             context = self.context_port.load_context(user_id, current_context_id)
 
+            import re
             prompt = processed_msg.original_content if processed_msg.message_type.value == "image" else processed_msg.processed_content
 
             url = self.web_assist_port.extract_url(prompt)
@@ -217,7 +252,7 @@ class ResponseGenerationUseCase:
                 self.context_port.save_context(user_id, context, current_context_id)
                 return response
 
-            if self._should_use_web_search_with_llm(prompt):
+            if self._should_use_web_search_with_llm(prompt, tenant_id=tenant_id):
                 response = self.web_assist_port.run_web_pipeline(prompt)
                 context.append({"role": "user", "content": prompt})
                 context.append({"role": "assistant", "content": response})
@@ -230,13 +265,14 @@ class ResponseGenerationUseCase:
                     prompt=prompt or "Describe la imagen",
                     image_path=image_path,
                     language="es",
+                    tenant_id=tenant_id,
                 )
                 context.append({"role": "user", "content": prompt})
                 context.append({"role": "assistant", "content": response})
                 self.context_port.save_context(user_id, context, current_context_id)
                 return response
 
-            response = self._generate_legacy_text_response(prompt=prompt, context=context, language="es")
+            response = self._generate_legacy_text_response(prompt=prompt, context=context, language="es", tenant_id=tenant_id)
             context.append({"role": "user", "content": prompt})
             context.append({"role": "assistant", "content": response})
             self.context_port.save_context(user_id, context, current_context_id)
@@ -244,7 +280,7 @@ class ResponseGenerationUseCase:
 
         except Exception as e:
             self.logger.error(f"Error en fallback legacy sin RAG: {e}")
-            return self._generate_plain_ai_response(processed_msg)
+            return self._generate_plain_ai_response(processed_msg, tenant_id=tenant_id)
 
     def generate_legacy_response_with_trace(
         self,
@@ -252,12 +288,14 @@ class ResponseGenerationUseCase:
         processed_msg: Any,
         context_id: Optional[str] = None,
         include_thinking: bool = False,
+        tenant_id: str = "default",
     ) -> dict:
         """Fallback legacy con salida enriquecida para UI/canales."""
         response = self.generate_legacy_response(
             user_id=user_id,
             processed_msg=processed_msg,
             context_id=context_id,
+            tenant_id=tenant_id,
         )
         if not include_thinking:
             return {"content": response, "thinking": ""}
@@ -268,8 +306,9 @@ class ResponseGenerationUseCase:
             "thinking": "",
         }
 
-    def _should_use_web_search_with_llm(self, user_question: str) -> bool:
+    def _should_use_web_search_with_llm(self, user_question: str, tenant_id: str = "default") -> bool:
         question_lower = (user_question or "").lower().strip()
+        import re
 
         # ── 1. Fast-path: patrones que NUNCA necesitan internet ───────────────
         no_web_patterns = [
@@ -326,23 +365,36 @@ class ResponseGenerationUseCase:
         )
 
         try:
-
-            provider = self.ai_provider_factory.get_provider()
+            p_name = self._get_ai_provider_name(tenant_id)
+            provider = self.ai_provider_factory.get_provider(p_name)
+            
             messages = [
                 {"role": "system", "content": "Eres un detector de intención para un asistente conversacional."},
                 {"role": "user", "content": prompt},
             ]
-            resp_text = provider.generate_text(prompt=prompt, messages=messages, max_tokens=5, temperature=0)
+            
+            kwargs = {"max_tokens": 5, "temperature": 0}
+            ai_model = self._get_ai_model(tenant_id)
+            if ai_model:
+                kwargs["model"] = ai_model
+
+            resp_text = provider.generate_text(prompt=prompt, messages=messages, **kwargs)
             decision = (resp_text or "").strip().upper()
             return decision == "WEB"
         except Exception as e:
             self.logger.error(f"Error al clasificar intención web/model: {e}")
             return False
 
-    def _generate_plain_ai_response(self, processed_msg: Any) -> str:
+    def _generate_plain_ai_response(self, processed_msg: Any, tenant_id: str = "default") -> str:
         try:
-            provider = self.ai_provider_factory.get_provider()
-            system_prompt = self._get_system_prompt()
+            p_name = self._get_ai_provider_name(tenant_id)
+            provider = self.ai_provider_factory.get_provider(p_name)
+            system_prompt = self._get_system_prompt(tenant_id)
+            
+            kwargs = {"temperature": 0.7, "max_tokens": 2048}
+            ai_model = self._get_ai_model(tenant_id)
+            if ai_model:
+                kwargs["model"] = ai_model
 
             resp_text = provider.generate_text(
                 prompt=processed_msg.processed_content,
@@ -350,29 +402,33 @@ class ResponseGenerationUseCase:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": processed_msg.processed_content}
                 ],
-                temperature=0.7,
-                max_tokens=2048,
+                **kwargs
             )
             return resp_text
         except Exception as e:
             self.logger.error(f"Error en generación LLM plana: {e}")
             return self._generate_default_response(processed_msg)
 
-    def _generate_plain_ai_response_with_trace(self, processed_msg: Any, include_thinking: bool = False) -> dict:
+    def _generate_plain_ai_response_with_trace(self, processed_msg: Any, include_thinking: bool = False, tenant_id: str = "default") -> dict:
         try:
-            provider = self.ai_provider_factory.get_provider()
-            system_prompt = self._get_system_prompt()
+            p_name = self._get_ai_provider_name(tenant_id)
+            provider = self.ai_provider_factory.get_provider(p_name)
+            system_prompt = self._get_system_prompt(tenant_id)
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": processed_msg.processed_content},
             ]
 
+            kwargs = {"temperature": 0.7, "max_tokens": 2048}
+            ai_model = self._get_ai_model(tenant_id)
+            if ai_model:
+                kwargs["model"] = ai_model
+
             if include_thinking and getattr(provider, "supports_thinking", lambda: False)():
                 traced = provider.generate_text_with_thinking(
                     prompt=processed_msg.processed_content,
                     messages=messages,
-                    temperature=0.7,
-                    max_tokens=2048,
+                    **kwargs
                 )
                 return {
                     "content": traced.get("content", ""),
@@ -382,27 +438,32 @@ class ResponseGenerationUseCase:
             text = provider.generate_text(
                 prompt=processed_msg.processed_content,
                 messages=messages,
-                temperature=0.7,
-                max_tokens=2048,
+                **kwargs
             )
             return {"content": text, "thinking": ""}
         except Exception as e:
             self.logger.error(f"Error en generación LLM plana con traza: {e}")
             return {"content": self._generate_default_response(processed_msg), "thinking": ""}
 
-    def _generate_legacy_text_response(self, prompt: str, context: List[dict], language: str = "es") -> str:
+    def _generate_legacy_text_response(self, prompt: str, context: List[dict], language: str = "es", tenant_id: str = "default") -> str:
         try:
-            provider = self.ai_provider_factory.get_provider()
+            p_name = self._get_ai_provider_name(tenant_id)
+            provider = self.ai_provider_factory.get_provider(p_name)
             initial_instructions = {
                 "role": "system",
-                "content": self._get_system_prompt(),
+                "content": self._get_system_prompt(tenant_id),
             }
 
             messages = [initial_instructions] + context + [{"role": "user", "content": prompt}]
             if language != 'en':
                 messages.insert(0, {"role": "system", "content": f"Por favor, responde en {language}."})
+            
+            kwargs = {"temperature": 0.7, "max_tokens": 600}
+            ai_model = self._get_ai_model(tenant_id)
+            if ai_model:
+                kwargs["model"] = ai_model
 
-            resp_text = provider.generate_text(prompt=prompt, messages=messages, max_tokens=600, temperature=0.7)
+            resp_text = provider.generate_text(prompt=prompt, messages=messages, **kwargs)
             if resp_text:
                 return resp_text.strip()
             return "No se pudo generar una respuesta."
@@ -410,12 +471,14 @@ class ResponseGenerationUseCase:
             self.logger.error(f"Error en generación legacy texto: {e}")
             return "Error al generar la respuesta."
 
-    def _generate_legacy_vision_response(self, prompt: str, image_path: Optional[str], language: str = "es") -> str:
+    def _generate_legacy_vision_response(self, prompt: str, image_path: Optional[str], language: str = "es", tenant_id: str = "default") -> str:
         if not image_path:
             return "No se proporcionó imagen para analizar."
 
+        import base64
         try:
-            provider = self.ai_provider_factory.get_provider()
+            p_name = self._get_ai_provider_name(tenant_id)
+            provider = self.ai_provider_factory.get_provider(p_name)
             with open(image_path, "rb") as image_file:
                 base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
@@ -423,7 +486,7 @@ class ResponseGenerationUseCase:
                 {
                     "role": "system",
                     "content": (
-                        self._get_system_prompt() +
+                        self._get_system_prompt(tenant_id) +
                         " Además eres un asistente visual experto en analizar y describir imágenes."
                     ),
                 },
@@ -439,7 +502,12 @@ class ResponseGenerationUseCase:
             if language != 'en':
                 messages.insert(0, {"role": "system", "content": f"Por favor, responde en {language}."})
 
-            resp_text = provider.generate_text(prompt=prompt, messages=messages, max_tokens=800)
+            kwargs = {"max_tokens": 800}
+            ai_model = self._get_ai_model(tenant_id)
+            if ai_model:
+                kwargs["model"] = ai_model
+
+            resp_text = provider.generate_text(prompt=prompt, messages=messages, **kwargs)
             if resp_text:
                 return resp_text.strip()
             return "No se pudo generar una respuesta."
@@ -447,9 +515,10 @@ class ResponseGenerationUseCase:
             self.logger.error(f"Error en generación legacy visión: {e}")
             return "Error al analizar la imagen."
 
-    def _generate_rag_response(self, processed_msg: Any, rag_context: List[dict]) -> str:
+    def _generate_rag_response(self, processed_msg: Any, rag_context: List[dict], tenant_id: str = "default") -> str:
         try:
-            provider = self.ai_provider_factory.get_provider()
+            p_name = self._get_ai_provider_name(tenant_id)
+            provider = self.ai_provider_factory.get_provider(p_name)
 
             context_str = "Información relevante:\n"
             for i, chunk in enumerate(rag_context, 1):
@@ -457,18 +526,22 @@ class ResponseGenerationUseCase:
                 sim = chunk.get("similarity", 0)
                 context_str += f"[{i}] (Relevancia: {sim:.0%}) {content[:200]}...\n\n"
 
-            system_prompt = self._get_rag_system_prompt()
+            system_prompt = self._get_rag_system_prompt(tenant_id)
             user_prompt = f"""{context_str}
 
 Pregunta: {processed_msg.processed_content}
 
 Responde de forma concisa y relevante."""
 
+            kwargs = {"temperature": 0.7, "max_tokens": 2048}
+            ai_model = self._get_ai_model(tenant_id)
+            if ai_model:
+                kwargs["model"] = ai_model
+
             resp_text = provider.generate_text(
                 prompt=processed_msg.processed_content,
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                temperature=0.7,
-                max_tokens=2048,
+                **kwargs
             )
 
             return resp_text
@@ -481,9 +554,11 @@ Responde de forma concisa y relevante."""
         processed_msg: Any,
         rag_context: List[dict],
         include_thinking: bool = False,
+        tenant_id: str = "default",
     ) -> dict:
         try:
-            provider = self.ai_provider_factory.get_provider()
+            p_name = self._get_ai_provider_name(tenant_id)
+            provider = self.ai_provider_factory.get_provider(p_name)
 
             context_str = "Información relevante:\n"
             for i, chunk in enumerate(rag_context, 1):
@@ -491,12 +566,17 @@ Responde de forma concisa y relevante."""
                 sim = chunk.get("similarity", 0)
                 context_str += f"[{i}] (Relevancia: {sim:.0%}) {content[:200]}...\n\n"
 
-            system_prompt = self._get_rag_system_prompt()
+            system_prompt = self._get_rag_system_prompt(tenant_id)
             user_prompt = f"""{context_str}
 
 Pregunta: {processed_msg.processed_content}
 
 Responde de forma concisa y relevante."""
+
+            kwargs = {"temperature": 0.7, "max_tokens": 2048}
+            ai_model = self._get_ai_model(tenant_id)
+            if ai_model:
+                kwargs["model"] = ai_model
 
             if include_thinking and getattr(provider, "supports_thinking", lambda: False)():
                 traced = provider.generate_text_with_thinking(
@@ -505,8 +585,7 @@ Responde de forma concisa y relevante."""
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
-                    temperature=0.7,
-                    max_tokens=2048,
+                    **kwargs
                 )
                 return {
                     "content": traced.get("content", ""),
@@ -519,8 +598,7 @@ Responde de forma concisa y relevante."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.7,
-                max_tokens=2048,
+                **kwargs
             )
 
             return {"content": resp_text, "thinking": ""}

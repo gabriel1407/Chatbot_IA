@@ -22,10 +22,12 @@ class AIProviderEmbeddingService(EmbeddingService):
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         self._logger = get_infrastructure_logger()
-        self._provider = get_ai_provider()
+        
+        # Determinar proveedor: usar embedding_provider si está definido, si no fallback a ai_provider
+        provider_name = (settings.embedding_provider or settings.ai_provider or "openai").lower()
+        self._provider = get_ai_provider(provider_name)
         
         # Determinar modelo según el proveedor configurado
-        provider_name = (settings.ai_provider or "openai").lower()
         if model:
             self._model = model
         elif provider_name == "openai":

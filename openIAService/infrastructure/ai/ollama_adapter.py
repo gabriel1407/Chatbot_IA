@@ -27,7 +27,7 @@ class OllamaAdapter(AIProvider):
             client_kwargs["headers"] = {"Authorization": f"Bearer {self.api_key}"}
         
         self.client = Client(**client_kwargs)
-        self.logger.info(f"Ollama adapter initialized: host={self.host}, model={self.model}, auth={'yes' if self.api_key else 'no'}")
+        self.logger.info(f"Ollama adapter ready: host={self.host}, auth={'yes' if self.api_key else 'no'} (default model: {self.model})")
 
     def supports_streaming(self) -> bool:
         return True
@@ -109,7 +109,7 @@ class OllamaAdapter(AIProvider):
                 # Convert prompt to message format
                 chat_messages = [{"role": "user", "content": prompt}]
             
-            self.logger.debug(f"Ollama request with model {model}, {len(chat_messages)} messages")
+            self.logger.info(f"Ollama request with model {model}, {len(chat_messages)} messages")
 
             # Call Ollama chat endpoint
             try:

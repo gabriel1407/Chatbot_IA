@@ -192,7 +192,13 @@ class SubscriptionRepository:
             FROM user_subscriptions s
             JOIN subscription_plans p ON p.id = s.plan_id
             WHERE s.username = :username
-            ORDER BY s.created_at DESC
+            ORDER BY 
+                CASE s.status
+                    WHEN 'active' THEN 1
+                    WHEN 'pending' THEN 2
+                    ELSE 99
+                END ASC,
+                s.created_at DESC
             LIMIT 1
         """)
         try:
@@ -261,16 +267,23 @@ class SubscriptionRepository:
         return self._cancel_previous(username)
 
     def _cancel_previous(self, username: str) -> bool:
-        sql = text("""
+        sql_sub = text("""
             UPDATE user_subscriptions
             SET status = 'cancelled'
             WHERE username = :username AND status IN ('active', 'pending')
         """)
+        sql_proof = text("""
+            UPDATE payment_proofs
+            SET status = 'cancelled'
+            WHERE username = :username AND status = 'pending'
+        """)
         try:
             with self.engine.begin() as conn:
-                conn.execute(sql, {"username": username})
+                conn.execute(sql_sub, {"username": username})
+                conn.execute(sql_proof, {"username": username})
             return True
-        except SQLAlchemyError:
+        except SQLAlchemyError as err:
+            logger.error(f"[Subscription] Error cancelando suscripciones de '{username}': {err}")
             return False
 
     # ── Payment Proofs ────────────────────────────────────────────────────────
@@ -323,6 +336,7 @@ class SubscriptionRepository:
                    p.name as plan_name, p.price_usd
             FROM payment_proofs pp
             JOIN subscription_plans p ON p.id = pp.plan_id
+            WHERE pp.status = 'pending'
             ORDER BY pp.created_at DESC
         """)
         try:

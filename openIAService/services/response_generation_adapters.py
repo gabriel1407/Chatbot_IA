@@ -79,8 +79,8 @@ class WebAssistPortAdapter:
 
 
 class AIProviderFactoryAdapter:
-    def get_provider(self):
-        return get_ai_provider()
+    def get_provider(self, provider_name: Optional[str] = None):
+        return get_ai_provider(provider_name)
 
 
 class RAGSearchPortAdapter:
